@@ -229,14 +229,6 @@ export default function VideoChatLiveKit({
         serverUrl={serverUrl}
         connect={true}
         onDisconnected={handleDisconnect}
-        options={{
-          publishDefaults: {
-            videoSimulcastLayers: [
-              { resolution: { width: 1280, height: 720 }, encoding: { maxBitrate: 1_500_000 } },
-              { resolution: { width: 640, height: 360 }, encoding: { maxBitrate: 500_000 } },
-            ],
-          },
-        }}
         style={{ height: "100vh" }}
       >
         {/* Custom UI */}
