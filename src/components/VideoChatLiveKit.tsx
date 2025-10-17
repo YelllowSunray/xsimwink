@@ -6,7 +6,6 @@ import {
   LiveKitRoom,
   useParticipants,
   useTracks,
-  useLocalParticipant,
   VideoTrack,
   AudioTrack,
   TrackReference,
@@ -283,25 +282,29 @@ function CustomVideoUI({
   stopRecording: () => void;
 }) {
   const participants = useParticipants();
-  const { localParticipant } = useLocalParticipant();
   const tracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
     { source: Track.Source.Microphone, withPlaceholder: false },
   ]);
   
-  const isGroupCall = participants.length > 2;
+  // Group call if there are 3+ people total (including you)
+  const isGroupCall = participants.length >= 3;
   const remoteParticipants = participants.filter((p) => !p.isLocal);
+  const localParticipant = participants.find((p) => p.isLocal);
+  const totalPeople = participants.length;
 
   // Debug logging for tracks
   React.useEffect(() => {
+    console.log("📹 Total Participants:", totalPeople);
     console.log("📹 Participants:", participants.map(p => ({ identity: p.identity, name: p.name, isLocal: p.isLocal })));
     console.log("📹 Local participant:", localParticipant?.identity);
+    console.log("📹 Remote participants:", remoteParticipants.length);
     console.log("📹 Tracks:", tracks.map(t => ({ 
       participant: t.participant?.identity, 
       source: t.source,
       hasPublication: !!t.publication 
     })));
-  }, [participants.length, tracks.length, localParticipant]);
+  }, [participants.length, tracks.length, localParticipant, remoteParticipants.length, totalPeople]);
 
   // Calculate grid layout based on participant count
   const getGridClass = (count: number) => {
@@ -399,11 +402,11 @@ function CustomVideoUI({
       {isGroupCall ? (
         /* Group Call Grid Layout */
         <div className="absolute inset-0 p-2 md:p-4 overflow-y-auto">
-          <div className={`grid ${getGridClass(participants.length)} gap-2 md:gap-3 auto-rows-fr`}>
-            {/* Local participant first */}
-            {localParticipant && renderParticipantTile(localParticipant, true)}
-            {/* Remote participants */}
-            {remoteParticipants.map(participant => renderParticipantTile(participant, false))}
+          <div className={`grid ${getGridClass(totalPeople)} gap-2 md:gap-3 auto-rows-fr`}>
+            {/* Render all participants - local first, then remote */}
+            {[...participants].sort((a, b) => (a.isLocal ? -1 : 1)).map(participant => 
+              renderParticipantTile(participant, participant.isLocal)
+            )}
           </div>
         </div>
       ) : (
@@ -435,7 +438,7 @@ function CustomVideoUI({
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-white text-xl font-semibold">
-              {isGroupCall ? `${partnerName} (${participants.length} people)` : partnerName}
+              {isGroupCall ? `Group Call (${totalPeople} people)` : partnerName}
             </h2>
             <div className="flex items-center gap-2 mt-1">
               <div
@@ -445,7 +448,7 @@ function CustomVideoUI({
               ></div>
               <span className="text-gray-300 text-sm capitalize">
                 {connectionStatus}
-                {isGroupCall && ` • ${remoteParticipants.length} joined`}
+                {isGroupCall && ` • ${remoteParticipants.length} others`}
               </span>
             </div>
           </div>
