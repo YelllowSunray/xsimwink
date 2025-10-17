@@ -82,6 +82,14 @@ function VideoChatLiveKitInner({
 
   // Recording functions
   const startRecording = () => {
+    // TODO: Implement LiveKit server-side recording
+    // Client-side recording of LiveKit calls is complex and not recommended
+    // For now, show a message
+    alert("📹 Recording feature coming soon!\n\nLiveKit server-side recording will be implemented to capture all participants' video and audio in high quality.");
+    setShowRecordingSettings(false);
+    return;
+    
+    /* Original client-side recording code (disabled)
     if (!localStreamRef.current) return;
 
     try {
@@ -137,6 +145,7 @@ function VideoChatLiveKitInner({
     } catch (error) {
       console.error("Failed to start recording:", error);
     }
+    */
   };
 
   const stopRecording = async () => {
