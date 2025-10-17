@@ -93,8 +93,45 @@ export default function HistoryPage() {
     }
   };
 
-  const formatDate = (date: Date) => {
-    const d = new Date(date);
+  const formatDate = (date: Date | any) => {
+    // Handle various date formats (Date object, timestamp, or Firestore Timestamp)
+    let d: Date;
+    
+    if (!date) {
+      return 'Unknown date';
+    }
+    
+    // If it's already a Date object
+    if (date instanceof Date) {
+      d = date;
+    }
+    // If it's a Firestore Timestamp with toDate()
+    else if (date.toDate && typeof date.toDate === 'function') {
+      d = date.toDate();
+    }
+    // If it's a timestamp number
+    else if (typeof date === 'number') {
+      d = new Date(date);
+    }
+    // If it's a string
+    else if (typeof date === 'string') {
+      d = new Date(date);
+    }
+    // If it has seconds property (Firestore Timestamp object)
+    else if (date.seconds) {
+      d = new Date(date.seconds * 1000);
+    }
+    else {
+      console.error('Invalid date format:', date);
+      return 'Invalid date';
+    }
+    
+    // Check if date is valid
+    if (isNaN(d.getTime())) {
+      console.error('Invalid date value:', date);
+      return 'Invalid date';
+    }
+    
     return d.toLocaleDateString('en-US', { 
       month: 'short', 
       day: 'numeric',

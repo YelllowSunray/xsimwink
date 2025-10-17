@@ -264,7 +264,8 @@ export default function Home() {
     
     if (incomingCall.isGroupCall) {
       // For group calls, use the roomId as the identifier
-      const participantCount = (incomingCall.participants?.length || 2) - 1; // Exclude self
+      // participants array already includes everyone (caller + invitees)
+      const participantCount = incomingCall.participants?.length || 2;
       setActiveCall({ 
         id: incomingCall.roomId, 
         name: `Group Call (${participantCount} people)`, 
@@ -379,10 +380,11 @@ export default function Home() {
         participants,
       });
 
-      // Start the group call
+      // Start the group call (total participants = selected + yourself)
+      const totalParticipants = selectedPerformers.size + 1;
       setActiveCall({
         id: roomId, // Use roomId as the "partnerId" for group calls
-        name: `Group Call (${selectedPerformers.size} people)`,
+        name: `Group Call (${totalParticipants} people)`,
         fee: totalFee,
       });
 
