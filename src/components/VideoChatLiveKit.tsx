@@ -6,6 +6,7 @@ import {
   LiveKitRoom,
   useParticipants,
   useTracks,
+  useLocalParticipant,
   VideoTrack,
   AudioTrack,
   TrackReference,
@@ -228,6 +229,14 @@ export default function VideoChatLiveKit({
         serverUrl={serverUrl}
         connect={true}
         onDisconnected={handleDisconnect}
+        options={{
+          publishDefaults: {
+            videoSimulcastLayers: [
+              { resolution: { width: 1280, height: 720 }, encoding: { maxBitrate: 1_500_000 } },
+              { resolution: { width: 640, height: 360 }, encoding: { maxBitrate: 500_000 } },
+            ],
+          },
+        }}
         style={{ height: "100vh" }}
       >
         {/* Custom UI */}
@@ -282,14 +291,25 @@ function CustomVideoUI({
   stopRecording: () => void;
 }) {
   const participants = useParticipants();
+  const { localParticipant } = useLocalParticipant();
   const tracks = useTracks([
-    { source: Track.Source.Camera, withPlaceholder: false },
+    { source: Track.Source.Camera, withPlaceholder: true },
     { source: Track.Source.Microphone, withPlaceholder: false },
   ]);
   
   const isGroupCall = participants.length > 2;
-  const localParticipant = participants.find((p) => p.isLocal);
   const remoteParticipants = participants.filter((p) => !p.isLocal);
+
+  // Debug logging for tracks
+  React.useEffect(() => {
+    console.log("📹 Participants:", participants.map(p => ({ identity: p.identity, name: p.name, isLocal: p.isLocal })));
+    console.log("📹 Local participant:", localParticipant?.identity);
+    console.log("📹 Tracks:", tracks.map(t => ({ 
+      participant: t.participant?.identity, 
+      source: t.source,
+      hasPublication: !!t.publication 
+    })));
+  }, [participants.length, tracks.length, localParticipant]);
 
   // Calculate grid layout based on participant count
   const getGridClass = (count: number) => {
@@ -333,13 +353,24 @@ function CustomVideoUI({
 
   // Render function for a single participant tile
   const renderParticipantTile = (participant: typeof participants[0], isSelf: boolean = false) => {
+    // Find tracks for this participant - be more lenient for local participant
     const videoTrack = tracks.find(
-      (t) => t.publication && t.participant.identity === participant.identity && t.source === Track.Source.Camera
+      (t) => t.participant?.identity === participant.identity && t.source === Track.Source.Camera
     ) as TrackReference | undefined;
     
     const audioTrack = tracks.find(
-      (t) => t.publication && t.participant.identity === participant.identity && t.source === Track.Source.Microphone
+      (t) => t.participant?.identity === participant.identity && t.source === Track.Source.Microphone
     ) as TrackReference | undefined;
+
+    // Debug if this is the local participant and no video track found
+    React.useEffect(() => {
+      if (isSelf && !videoTrack) {
+        console.warn("⚠️ Local participant video track not found:", {
+          participantIdentity: participant.identity,
+          tracksAvailable: tracks.filter(t => t.participant?.identity === participant.identity).length
+        });
+      }
+    }, [isSelf, videoTrack, participant.identity]);
 
     return (
       <div key={participant.identity} className="relative bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center aspect-video">
@@ -361,7 +392,7 @@ function CustomVideoUI({
             <div className="w-16 h-16 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-2xl font-bold mb-2">
               {participant.name?.[0]?.toUpperCase() || "?"}
             </div>
-            <p className="text-gray-400 text-sm">Connecting...</p>
+            <p className="text-gray-400 text-sm">{isSelf ? "Loading camera..." : "Connecting..."}</p>
           </div>
         )}
         <div className="absolute bottom-2 left-2 bg-black/60 px-2 py-1 rounded text-white text-xs">
