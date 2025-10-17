@@ -122,6 +122,15 @@ export default function VideoChatLiveKit({
       wasRecorded: isRecording,
     });
 
+    // Clean up local stream to release camera/mic
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
+        track.stop();
+        console.log("🛑 Stopped track:", track.kind);
+      });
+      localStreamRef.current = null;
+    }
+
     onEndCall();
   };
 
@@ -188,6 +197,15 @@ export default function VideoChatLiveKit({
 
   const handleDisconnect = async () => {
     const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+
+    // Clean up local stream to release camera/mic
+    if (localStreamRef.current) {
+      localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
+        track.stop();
+        console.log("🛑 Stopped track on disconnect:", track.kind);
+      });
+      localStreamRef.current = null;
+    }
 
     // Save session to history
     await addSessionHistory({
@@ -293,19 +311,6 @@ function CustomVideoUI({
   const localParticipant = participants.find((p) => p.isLocal);
   const totalPeople = participants.length;
 
-  // Debug logging for tracks
-  React.useEffect(() => {
-    console.log("📹 Total Participants:", totalPeople);
-    console.log("📹 Participants:", participants.map(p => ({ identity: p.identity, name: p.name, isLocal: p.isLocal })));
-    console.log("📹 Local participant:", localParticipant?.identity);
-    console.log("📹 Remote participants:", remoteParticipants.length);
-    console.log("📹 Tracks:", tracks.map(t => ({ 
-      participant: t.participant?.identity, 
-      source: t.source,
-      hasPublication: !!t.publication 
-    })));
-  }, [participants.length, tracks.length, localParticipant, remoteParticipants.length, totalPeople]);
-
   // Calculate grid layout based on participant count
   const getGridClass = (count: number) => {
     if (count === 1) return "grid-cols-1";
@@ -348,7 +353,7 @@ function CustomVideoUI({
 
   // Render function for a single participant tile
   const renderParticipantTile = (participant: typeof participants[0], isSelf: boolean = false) => {
-    // Find tracks for this participant - be more lenient for local participant
+    // Find tracks for this participant
     const videoTrack = tracks.find(
       (t) => t.participant?.identity === participant.identity && t.source === Track.Source.Camera
     ) as TrackReference | undefined;
@@ -356,16 +361,6 @@ function CustomVideoUI({
     const audioTrack = tracks.find(
       (t) => t.participant?.identity === participant.identity && t.source === Track.Source.Microphone
     ) as TrackReference | undefined;
-
-    // Debug if this is the local participant and no video track found
-    React.useEffect(() => {
-      if (isSelf && !videoTrack) {
-        console.warn("⚠️ Local participant video track not found:", {
-          participantIdentity: participant.identity,
-          tracksAvailable: tracks.filter(t => t.participant?.identity === participant.identity).length
-        });
-      }
-    }, [isSelf, videoTrack, participant.identity]);
 
     return (
       <div key={participant.identity} className="relative bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center aspect-video">
