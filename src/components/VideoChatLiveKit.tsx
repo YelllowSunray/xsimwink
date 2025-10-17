@@ -1,7 +1,49 @@
 "use client";
 
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState, useRef, Component, ErrorInfo, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+
+// Error Boundary to catch React errors on mobile
+class VideoErrorBoundary extends Component<
+  { children: ReactNode },
+  { hasError: boolean; error: Error | null }
+> {
+  constructor(props: { children: ReactNode }) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error("Video component error:", error, errorInfo);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
+          <div className="text-center p-4">
+            <div className="text-white text-xl mb-4">⚠️ Video Error</div>
+            <p className="text-gray-300 mb-4">
+              {this.state.error?.message || "Something went wrong with the video"}
+            </p>
+            <button
+              onClick={() => window.location.reload()}
+              className="bg-pink-600 text-white px-6 py-3 rounded-lg"
+            >
+              Reload Page
+            </button>
+          </div>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
 import {
   LiveKitRoom,
   useParticipants,
@@ -20,7 +62,7 @@ interface VideoChatLiveKitProps {
   connectionFee: number;
 }
 
-export default function VideoChatLiveKit({
+function VideoChatLiveKitInner({
   partnerId,
   partnerName,
   onEndCall,
@@ -353,6 +395,11 @@ function CustomVideoUI({
 
   // Render function for a single participant tile
   const renderParticipantTile = (participant: typeof participants[0], isSelf: boolean = false) => {
+    // Safety check
+    if (!participant || !participant.identity) {
+      return null;
+    }
+
     // Find tracks for this participant
     const videoTrack = tracks.find(
       (t) => t.participant?.identity === participant.identity && t.source === Track.Source.Camera
@@ -371,7 +418,7 @@ function CustomVideoUI({
               style={{ 
                 width: "100%", 
                 height: "100%", 
-                objectFit: "cover",
+                objectFit: "contain",
                 transform: isSelf ? "scaleX(-1)" : undefined
               }}
             />
@@ -399,19 +446,25 @@ function CustomVideoUI({
         <div className="absolute inset-0 p-2 md:p-4 overflow-y-auto">
           <div className={`grid ${getGridClass(totalPeople)} gap-2 md:gap-3 auto-rows-fr`}>
             {/* Render all participants - local first, then remote */}
-            {[...participants].sort((a, b) => (a.isLocal ? -1 : 1)).map(participant => 
-              renderParticipantTile(participant, participant.isLocal)
-            )}
+            {participants && participants.length > 0 && [...participants]
+              .sort((a, b) => (a.isLocal ? -1 : 1))
+              .filter(p => p && p.identity)
+              .map(participant => (
+                <React.Fragment key={participant.identity}>
+                  {renderParticipantTile(participant, participant.isLocal)}
+                </React.Fragment>
+              ))
+            }
           </div>
         </div>
       ) : (
         /* 1-on-1 Call Layout (Original PIP style) */
         <div className="absolute inset-0 bg-black flex items-center justify-center">
-          {remoteParticipants.length > 0 ? (
+          {remoteParticipants && remoteParticipants.length > 0 && remoteParticipants[0] ? (
             <>
               {renderParticipantTile(remoteParticipants[0], false)}
               {/* Local Video (Picture-in-Picture) */}
-              {localParticipant && (
+              {localParticipant && localParticipant.identity && (
                 <div className="absolute top-4 right-4 w-36 h-28 md:w-48 md:h-36 rounded-lg overflow-hidden border-2 border-pink-500 shadow-2xl">
                   {renderParticipantTile(localParticipant, true)}
                 </div>
@@ -550,3 +603,11 @@ function CustomVideoUI({
   );
 }
 
+// Wrapped export with Error Boundary
+export default function VideoChatLiveKit(props: VideoChatLiveKitProps) {
+  return (
+    <VideoErrorBoundary>
+      <VideoChatLiveKitInner {...props} />
+    </VideoErrorBoundary>
+  );
+}
