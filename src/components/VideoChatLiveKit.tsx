@@ -74,7 +74,6 @@ function VideoChatLiveKitInner({
   const [callDuration, setCallDuration] = useState(0);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingTitle, setRecordingTitle] = useState("");
-  const [recordingPrice, setRecordingPrice] = useState(9.99);
   const [showRecordingSettings, setShowRecordingSettings] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
@@ -83,6 +82,7 @@ function VideoChatLiveKitInner({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawIntervalRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
   const { user, addSessionHistory, addRecording } = useAuth();
 
   // Canvas Composite Recording - Captures all participants
@@ -219,18 +219,62 @@ function VideoChatLiveKitInner({
       // Capture canvas as video stream
       const canvasStream = canvas.captureStream(fps);
       
-      // Add audio from local microphone
+      // Mix ALL audio tracks (local + remote) using Web Audio API
+      const audioContext = new AudioContext();
+      audioContextRef.current = audioContext; // Store for cleanup
+      const mixedAudioDestination = audioContext.createMediaStreamDestination();
+      
+      // Get all audio elements from the page (LiveKit renders audio for each participant)
+      const audioElements = Array.from(document.querySelectorAll('audio'));
+      console.log(`🎤 Found ${audioElements.length} audio elements to mix`);
+      
+      // Connect each audio element to the mixer
+      audioElements.forEach((audioElement: HTMLAudioElement, index) => {
+        try {
+          // Create MediaElementSource from each audio element
+          const source = audioContext.createMediaElementSource(audioElement);
+          
+          // Connect to mixer
+          source.connect(mixedAudioDestination);
+          
+          // Also connect back to speakers so we can still hear during recording
+          source.connect(audioContext.destination);
+          
+          console.log(`✅ Connected audio source ${index + 1}`);
+        } catch (error) {
+          console.warn(`⚠️ Could not connect audio element ${index + 1}:`, error);
+        }
+      });
+      
+      // Also add local microphone audio if available
       if (localStreamRef.current) {
         const audioTracks = localStreamRef.current.getAudioTracks();
         if (audioTracks.length > 0) {
-          canvasStream.addTrack(audioTracks[0]);
+          try {
+            const localAudioStream = new MediaStream([audioTracks[0]]);
+            const localSource = audioContext.createMediaStreamSource(localAudioStream);
+            localSource.connect(mixedAudioDestination);
+            console.log('✅ Added local microphone audio');
+          } catch (error) {
+            console.warn('⚠️ Could not add local audio:', error);
+          }
         }
+      }
+      
+      // Add mixed audio track to canvas stream
+      const mixedAudioTracks = mixedAudioDestination.stream.getAudioTracks();
+      if (mixedAudioTracks.length > 0) {
+        canvasStream.addTrack(mixedAudioTracks[0]);
+        console.log('✅ Mixed audio added to recording stream');
+      } else {
+        console.warn('⚠️ No audio tracks available for recording');
       }
 
       // Create MediaRecorder
       const recorder = new MediaRecorder(canvasStream, {
         mimeType,
         videoBitsPerSecond: 2500000, // 2.5 Mbps for good quality
+        audioBitsPerSecond: 128000, // 128 Kbps for audio
       });
 
       const chunks: Blob[] = [];
@@ -248,6 +292,17 @@ function VideoChatLiveKitInner({
         if (animationFrameRef.current) {
           cancelAnimationFrame(animationFrameRef.current);
           animationFrameRef.current = null;
+        }
+        
+        // Clean up audio context
+        if (audioContextRef.current) {
+          try {
+            await audioContextRef.current.close();
+            audioContextRef.current = null;
+            console.log('🔇 Audio context closed');
+          } catch (error) {
+            console.warn('Error closing audio context:', error);
+          }
         }
 
         if (chunks.length === 0) {
@@ -331,6 +386,17 @@ function VideoChatLiveKitInner({
       setIsRecording(false);
       setMediaRecorder(null);
       setShowRecordingSettings(false);
+    }
+    
+    // Clean up audio context
+    if (audioContextRef.current) {
+      try {
+        await audioContextRef.current.close();
+        audioContextRef.current = null;
+        console.log('🔇 Audio context closed');
+      } catch (error) {
+        console.warn('Error closing audio context:', error);
+      }
     }
 
     // Clean up canvas
@@ -506,8 +572,6 @@ function VideoChatLiveKitInner({
           showRecordingSettings={showRecordingSettings}
           recordingTitle={recordingTitle}
           setRecordingTitle={setRecordingTitle}
-          recordingPrice={recordingPrice}
-          setRecordingPrice={setRecordingPrice}
           setShowRecordingSettings={setShowRecordingSettings}
           startRecording={startRecording}
           stopRecording={stopRecording}
@@ -527,8 +591,6 @@ function CustomVideoUI({
   showRecordingSettings,
   recordingTitle,
   setRecordingTitle,
-  recordingPrice,
-  setRecordingPrice,
   setShowRecordingSettings,
   startRecording,
   stopRecording,
@@ -541,8 +603,6 @@ function CustomVideoUI({
   showRecordingSettings: boolean;
   recordingTitle: string;
   setRecordingTitle: (title: string) => void;
-  recordingPrice: number;
-  setRecordingPrice: (price: number) => void;
   setShowRecordingSettings: (show: boolean) => void;
   startRecording: () => void;
   stopRecording: () => void;
@@ -587,6 +647,25 @@ function CustomVideoUI({
   const remoteParticipants = participants.filter((p) => !p.isLocal);
   const localParticipant = participants.find((p) => p.isLocal);
   const totalPeople = participants.length;
+  
+  // Auto-end call when the other person leaves (1-on-1 scenarios)
+  React.useEffect(() => {
+    // Only track participant changes after initial connection
+    if (totalPeople === 0) return;
+    
+    // Scenario 1: 1-on-1 call - if only 1 person left (just me), other person left
+    // Scenario 2: Group call reduced to 1-on-1, then someone leaves
+    if (totalPeople === 1 && localParticipant) {
+      console.log('👋 Other participant(s) left, ending call...');
+      
+      // Small delay to ensure clean disconnection
+      const timeoutId = setTimeout(() => {
+        onEndCall();
+      }, 1000);
+      
+      return () => clearTimeout(timeoutId);
+    }
+  }, [totalPeople, localParticipant, onEndCall]);
   
   // Broadcast recording state when it changes
   React.useEffect(() => {
