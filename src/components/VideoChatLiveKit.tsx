@@ -119,44 +119,87 @@ function VideoChatLiveKitInner({
       console.log('🎬 Starting canvas composite recording...');
       
       // Wait for all videos to be ready (important for mobile)
-      const waitForVideos = async (maxWaitMs: number = 3000): Promise<HTMLVideoElement[]> => {
+      const waitForVideos = async (maxWaitMs: number = 5000): Promise<HTMLVideoElement[]> => {
         const startTime = Date.now();
         
         while (Date.now() - startTime < maxWaitMs) {
           const allVideos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-          const readyVideos = allVideos.filter(v => v.readyState >= 2 && v.videoWidth > 0);
           
-          console.log(`⏳ Waiting for videos... Found ${allVideos.length} total, ${readyVideos.length} ready`);
+          // Log detailed status of each video
+          allVideos.forEach((v, i) => {
+            console.log(`  Video ${i}: readyState=${v.readyState}, size=${v.videoWidth}x${v.videoHeight}, paused=${v.paused}, srcObject=${!!v.srcObject}, currentTime=${v.currentTime.toFixed(2)}s`);
+          });
           
-          // Need at least 2 videos for a recording (local + remote)
+          // Get unique videos (remove duplicates by srcObject)
+          const uniqueVideos: HTMLVideoElement[] = [];
+          const seenStreams = new Set<MediaStream>();
+          
+          allVideos.forEach((video) => {
+            if (video.srcObject && video.srcObject instanceof MediaStream) {
+              if (!seenStreams.has(video.srcObject)) {
+                seenStreams.add(video.srcObject);
+                uniqueVideos.push(video);
+              }
+            }
+          });
+          
+          const readyVideos = uniqueVideos.filter(v => 
+            v.readyState >= v.HAVE_CURRENT_DATA && // At least readyState 2
+            v.videoWidth > 0 && 
+            v.videoHeight > 0 &&
+            !v.paused
+          );
+          
+          console.log(`⏳ Waiting for videos... Found ${allVideos.length} total, ${uniqueVideos.length} unique, ${readyVideos.length} ready`);
+          
+          // Need at least 2 unique ready videos for a recording (local + remote)
           if (readyVideos.length >= 2) {
             console.log('✅ All videos ready!');
+            
+            // Force play all videos to ensure they're running
+            for (const video of readyVideos) {
+              if (video.paused) {
+                try {
+                  await video.play();
+                  console.log('▶️ Started paused video');
+                } catch (e) {
+                  console.warn('Could not play video:', e);
+                }
+              }
+            }
+            
             return readyVideos;
           }
           
-          // If we have 1+ video but waiting for more, continue waiting
-          if (allVideos.length >= 2 && readyVideos.length >= 1) {
-            await new Promise(resolve => setTimeout(resolve, 200)); // Wait 200ms and retry
-            continue;
-          }
-          
-          // If we only have 1 video total, might be 1-on-1 call still connecting
-          if (allVideos.length === 1) {
-            await new Promise(resolve => setTimeout(resolve, 500)); // Wait longer
-            continue;
-          }
-          
-          break;
+          // Wait and retry
+          await new Promise(resolve => setTimeout(resolve, 300));
         }
         
-        // Return whatever we have after timeout
+        // Return whatever unique ready videos we have after timeout
         const allVideos = Array.from(document.querySelectorAll('video')) as HTMLVideoElement[];
-        return allVideos.filter(v => v.readyState >= 2 && v.videoWidth > 0);
+        const uniqueVideos: HTMLVideoElement[] = [];
+        const seenStreams = new Set<MediaStream>();
+        
+        allVideos.forEach((video) => {
+          if (video.srcObject && video.srcObject instanceof MediaStream) {
+            if (!seenStreams.has(video.srcObject)) {
+              seenStreams.add(video.srcObject);
+              uniqueVideos.push(video);
+            }
+          }
+        });
+        
+        console.warn(`⚠️ Timeout waiting for videos. Returning ${uniqueVideos.length} videos`);
+        return uniqueVideos.filter(v => v.readyState >= 2 && v.videoWidth > 0);
       };
       
       // Get all ready video elements
-      const videoElements = await waitForVideos(3000);
+      const videoElements = await waitForVideos(5000);
       console.log(`📹 Total ready video elements: ${videoElements.length}`);
+      
+      videoElements.forEach((v, i) => {
+        console.log(`📹 Video ${i} final check: ${v.videoWidth}x${v.videoHeight}, readyState=${v.readyState}, playing=${!v.paused}`);
+      });
       
       if (videoElements.length === 0) {
         alert("⚠️ No video streams found. Please wait for participants to connect first.");
@@ -227,7 +270,8 @@ function VideoChatLiveKitInner({
       // Cache video elements to prevent flickering from re-querying DOM
       let cachedVideos: HTMLVideoElement[] = [];
       let lastVideoCheckTime = 0;
-      const videoCheckInterval = 1000; // Only re-check videos every 1 second
+      const videoCheckInterval = 2000; // Only re-check videos every 2 seconds (to reduce flickering)
+      let isVideoCacheLocked = false; // Lock cache after first successful capture
 
       const drawFrame = (timestamp: number) => {
         if (!canvasRef.current || !ctx) return;
@@ -241,7 +285,7 @@ function VideoChatLiveKitInner({
 
         // Only re-query videos periodically to prevent flickering
         const now = Date.now();
-        if (cachedVideos.length === 0 || now - lastVideoCheckTime > videoCheckInterval) {
+        if (!isVideoCacheLocked && (cachedVideos.length === 0 || now - lastVideoCheckTime > videoCheckInterval)) {
           const allVideos = Array.from(document.querySelectorAll('video'));
           const readyVideos = allVideos.filter((v: HTMLVideoElement) => 
             v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0
@@ -275,6 +319,12 @@ function VideoChatLiveKitInner({
             cachedVideos = uniqueVideos;
             lastVideoCheckTime = now;
             
+            // Lock cache after first successful capture of 2+ videos to prevent flickering
+            if (uniqueVideos.length >= 2 && !isVideoCacheLocked) {
+              isVideoCacheLocked = true;
+              console.log(`🔒 Locked video cache with ${uniqueVideos.length} videos to prevent flickering`);
+            }
+            
             // Debug logging for first few seconds
             const elapsedMs = now - recordingStartTime;
             if (elapsedMs < 5000) { // Log for first 5 seconds
@@ -305,6 +355,10 @@ function VideoChatLiveKitInner({
         currentVideos.forEach((video: HTMLVideoElement, index) => {
           // Skip if video is no longer valid
           if (!video || video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
+            const elapsedMs = Date.now() - recordingStartTime;
+            if (elapsedMs < 5000) {
+              console.warn(`⚠️ Skipping video ${index}: readyState=${video?.readyState}, size=${video?.videoWidth}x${video?.videoHeight}`);
+            }
             return; // Skip this video
           }
           
@@ -331,6 +385,12 @@ function VideoChatLiveKitInner({
               // Video is taller than cell
               drawWidth = cellHeight * videoAspect;
               drawX = x + (cellWidth - drawWidth) / 2;
+            }
+            
+            // Debug log drawing (first few seconds only)
+            const elapsedMs = Date.now() - recordingStartTime;
+            if (elapsedMs < 3000 && Math.random() < 0.1) { // Log ~10% of frames
+              console.log(`🎨 Drawing video ${index}: pos=(${Math.floor(drawX)},${Math.floor(drawY)}), size=${Math.floor(drawWidth)}x${Math.floor(drawHeight)}`);
             }
 
             // Apply visual effects to canvas context
@@ -362,7 +422,17 @@ function VideoChatLiveKitInner({
               }
             }
 
-            ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+            // Actually draw the video frame
+            try {
+              ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+            } catch (drawError: any) {
+              const elapsedMs = Date.now() - recordingStartTime;
+              if (elapsedMs < 5000) {
+                console.error(`❌ Failed to draw video ${index}:`, drawError?.message || drawError);
+                console.log(`   Video details: ${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}, paused=${video.paused}, currentTime=${video.currentTime}`);
+              }
+              throw drawError; // Re-throw to be caught by outer try-catch
+            }
             
             if (isLocalVideo) {
               ctx.restore(); // Restore context state
@@ -372,9 +442,12 @@ function VideoChatLiveKitInner({
             ctx.strokeStyle = '#333333';
             ctx.lineWidth = 2;
             ctx.strokeRect(x, y, cellWidth, cellHeight);
-          } catch (e) {
+          } catch (e: any) {
             // Video might not be ready yet
-            console.debug('Skipping video frame:', e);
+            const elapsedMs = Date.now() - recordingStartTime;
+            if (elapsedMs < 5000) {
+              console.warn(`⚠️ Error drawing video ${index}:`, e?.message || e);
+            }
           }
         });
 
