@@ -9,9 +9,11 @@ This guide explains how to set up and use Spotify Premium integration in your vi
 - 🎮 Full playback controls (play, pause, skip, volume)
 - 🔍 Search and play any song from Spotify's catalog
 - 🎨 Beautiful player UI with album art
-- 📱 Works on desktop and mobile
+- 💻 **Works on desktop browsers only** (Chrome, Firefox, Edge, Safari)
 - 🔄 Automatic token refresh
 - 👥 Personal music experience during calls
+
+⚠️ **Desktop Only**: Spotify Web Playback SDK is not supported on mobile browsers (iPhone, iPad, Android). The player will automatically hide on mobile devices.
 
 ## Prerequisites
 

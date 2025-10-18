@@ -36,6 +36,13 @@ npm run dev
 3. **Click "Connect"** and log in with Spotify Premium
 4. **Search and play** your favorite music!
 
+## ⚠️ Desktop Only
+
+**Important:** Spotify Web Playback SDK only works on **desktop browsers** (Chrome, Firefox, Edge, Safari on Mac/PC). The Spotify player will automatically hide on mobile devices (iPhone, iPad, Android) to prevent errors.
+
+- ✅ **Desktop**: Full Spotify integration with playback controls
+- 🚫 **Mobile**: Spotify player is hidden (not supported by Spotify SDK)
+
 ## 📦 What Was Added
 
 ### New Files Created:

@@ -27,12 +27,25 @@ export default function SpotifyPlayer() {
   const [volume, setVolumeState] = useState(50);
   const [showVolume, setShowVolume] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  
+  // Detect mobile devices - Spotify Web Playback SDK doesn't work on mobile browsers
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    const checkMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+    setIsMobile(checkMobile);
+  }, []);
 
   useEffect(() => {
     if (error) {
       console.error('Spotify error:', error);
     }
   }, [error]);
+  
+  // Don't render Spotify player on mobile devices
+  if (isMobile) {
+    return null;
+  }
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;

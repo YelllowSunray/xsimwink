@@ -2070,8 +2070,8 @@ function CustomVideoUI({
         </div>
       </div>
 
-      {/* Spotify Player - Positioned in bottom-right corner */}
-      <div className="absolute bottom-24 md:bottom-28 right-4 z-20 w-80 max-w-[calc(100%-2rem)]">
+      {/* Spotify Player - Positioned in bottom-left corner */}
+      <div className="absolute bottom-24 md:bottom-28 left-4 z-20 w-80 max-w-[calc(100%-2rem)]">
         <SpotifyPlayer />
       </div>
 

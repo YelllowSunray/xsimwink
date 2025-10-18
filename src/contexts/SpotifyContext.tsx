@@ -30,9 +30,27 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
+  
+  // Detect if running on mobile - Spotify Web Playback SDK doesn't work on mobile browsers
+  const [isMobile, setIsMobile] = useState(false);
+  
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const checkMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      setIsMobile(checkMobile);
+      if (checkMobile) {
+        console.log('🚫 Mobile device detected - Spotify Web Playback SDK not supported on mobile browsers');
+      }
+    }
+  }, []);
 
   // Check for stored tokens on mount
   useEffect(() => {
+    // Don't initialize on mobile devices
+    if (isMobile) {
+      return;
+    }
+    
     const storedAccessToken = localStorage.getItem('spotify_access_token');
     const storedRefreshToken = localStorage.getItem('spotify_refresh_token');
     const tokenExpiry = localStorage.getItem('spotify_token_expiry');
@@ -52,7 +70,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         refreshAccessToken(storedRefreshToken);
       }
     }
-  }, []);
+  }, [isMobile]);
 
   // Handle OAuth callback
   useEffect(() => {
@@ -117,6 +135,12 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   }, [refreshToken]);
 
   const initializePlayer = async (token: string) => {
+    // Don't initialize on mobile devices
+    if (isMobile) {
+      console.log('🚫 Skipping Spotify initialization on mobile device');
+      return;
+    }
+    
     try {
       await spotifyService.initialize(token);
       // Transfer playback to this device
