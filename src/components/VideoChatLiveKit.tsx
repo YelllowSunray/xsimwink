@@ -832,17 +832,29 @@ function VideoChatLiveKitInner({
     
     rawVideoStreamRef.current = rawVideoStream;
     
-    // Wait for video metadata to get actual dimensions
-    video.onloadedmetadata = () => {
-      console.log(`📹 Video dimensions: ${video.videoWidth}x${video.videoHeight}`);
+    // Flag to ensure canvas is only initialized once
+    let canvasInitialized = false;
+    
+    // Function to initialize canvas once we have video dimensions
+    const initializeCanvas = () => {
+      if (canvasInitialized) {
+        console.log('⚠️ Canvas already initialized, skipping');
+        return;
+      }
+      canvasInitialized = true;
+      const width = video.videoWidth || 1280;
+      const height = video.videoHeight || 720;
+      
+      console.log(`📹 Video dimensions: ${width}x${height}`);
       
       // Create canvas matching actual video dimensions (handles portrait/landscape)
       const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth || 1280;
-      canvas.height = video.videoHeight || 720;
+      canvas.width = width;
+      canvas.height = height;
       videoEffectCanvasRef.current = canvas;
       
       console.log(`🎨 Canvas dimensions: ${canvas.width}x${canvas.height}`);
+      console.log(`🎨 Aspect ratio: ${(width / height).toFixed(2)}`);
       
       const ctx = canvas.getContext('2d', { willReadFrequently: true });
       if (!ctx) {
@@ -900,17 +912,15 @@ function VideoChatLiveKitInner({
       };
       
       // Start processing when video loads and plays
-      video.oncanplay = () => {
-        console.log('🎥 Video can play, starting frame processing');
-        if (!video.paused) {
-          processFrame();
-        }
+      const startProcessing = () => {
+        console.log('🎥 Starting frame processing');
+        processFrame();
       };
       
       // Ensure video plays
       video.play().then(() => {
-        console.log('🎥 Video playing');
-        processFrame();
+        console.log('🎥 Video playing, starting processing');
+        startProcessing();
       }).catch(err => {
         console.error('Video play error:', err);
       });
@@ -924,6 +934,26 @@ function VideoChatLiveKitInner({
       
       console.log('✅ Video effects processing started');
     };
+    
+    // Wait for video metadata (mobile-friendly approach)
+    const checkVideoReady = () => {
+      if (video.videoWidth > 0 && video.videoHeight > 0) {
+        console.log('✅ Video metadata ready');
+        initializeCanvas();
+      } else {
+        console.log('⏳ Waiting for video dimensions...');
+        setTimeout(checkVideoReady, 100); // Check every 100ms
+      }
+    };
+    
+    // Listen for metadata event (desktop)
+    video.onloadedmetadata = () => {
+      console.log('📹 onloadedmetadata fired');
+      initializeCanvas();
+    };
+    
+    // Start checking (mobile fallback)
+    setTimeout(checkVideoReady, 100);
     
     return null;
   };
@@ -1057,14 +1087,41 @@ function VideoChatLiveKitInner({
       }
       
       try {
-        console.log('🎨 Initializing video effects...');
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { 
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: 'user'
+        console.log('🎨 Initializing video effects - looking for existing camera...');
+        
+        // Try to get the existing camera stream from LiveKit first
+        let stream: MediaStream | null = null;
+        
+        if (localStreamRef.current) {
+          const videoTracks = localStreamRef.current.getVideoTracks();
+          if (videoTracks.length > 0) {
+            console.log('✅ Using existing camera stream from LiveKit');
+            stream = localStreamRef.current;
           }
-        });
+        }
+        
+        // If no existing stream, request a new one
+        if (!stream) {
+          console.log('📹 Requesting new camera stream...');
+          stream = await navigator.mediaDevices.getUserMedia({ 
+            video: { 
+              facingMode: 'user'
+              // Don't specify dimensions - let device use its native resolution
+            }
+          });
+        }
+        
+        console.log(`📹 Stream video tracks: ${stream.getVideoTracks().length}`);
+        if (stream.getVideoTracks().length > 0) {
+          const track = stream.getVideoTracks()[0];
+          const settings = track.getSettings();
+          console.log(`📹 Video track settings:`, {
+            width: settings.width,
+            height: settings.height,
+            aspectRatio: settings.aspectRatio,
+            facingMode: settings.facingMode
+          });
+        }
         
         rawVideoStreamRef.current = stream;
         startVideoEffectProcessing(stream, visualEffect);
@@ -1728,9 +1785,9 @@ function CustomVideoUI({
                 {connectionStatus}
                 {isGroupCall && ` • ${remoteParticipants.length} others`}
               </span>
+              </div>
             </div>
-          </div>
-          <div className="text-white text-lg font-mono">{formatDuration(callDuration)}</div>
+            <div className="text-white text-lg font-mono">{formatDuration(callDuration)}</div>
         </div>
       </div>
 
