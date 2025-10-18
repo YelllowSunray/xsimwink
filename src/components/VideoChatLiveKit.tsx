@@ -224,29 +224,41 @@ function VideoChatLiveKitInner({
       audioContextRef.current = audioContext; // Store for cleanup
       const mixedAudioDestination = audioContext.createMediaStreamDestination();
       
-      // Get all audio elements from the page (LiveKit renders audio for each participant)
-      const audioElements = Array.from(document.querySelectorAll('audio'));
-      console.log(`🎤 Found ${audioElements.length} audio elements to mix`);
+      let audioSourcesAdded = 0;
       
-      // Connect each audio element to the mixer
-      audioElements.forEach((audioElement: HTMLAudioElement, index) => {
+      // Get all audio/video elements and extract their MediaStreamTracks
+      const allMediaElements = [
+        ...Array.from(document.querySelectorAll('audio')),
+        ...Array.from(document.querySelectorAll('video'))
+      ];
+      
+      console.log(`🎤 Found ${allMediaElements.length} media elements to check for audio`);
+      
+      // Extract audio tracks from each element's srcObject
+      allMediaElements.forEach((element: HTMLMediaElement, index) => {
         try {
-          // Create MediaElementSource from each audio element
-          const source = audioContext.createMediaElementSource(audioElement);
-          
-          // Connect to mixer
-          source.connect(mixedAudioDestination);
-          
-          // Also connect back to speakers so we can still hear during recording
-          source.connect(audioContext.destination);
-          
-          console.log(`✅ Connected audio source ${index + 1}`);
+          const srcObject = element.srcObject;
+          if (srcObject && srcObject instanceof MediaStream) {
+            const audioTracks = srcObject.getAudioTracks();
+            audioTracks.forEach((audioTrack) => {
+              try {
+                // Create a new MediaStream with just this audio track
+                const trackStream = new MediaStream([audioTrack]);
+                const source = audioContext.createMediaStreamSource(trackStream);
+                source.connect(mixedAudioDestination);
+                audioSourcesAdded++;
+                console.log(`✅ Connected audio track ${audioSourcesAdded} from element ${index}`);
+              } catch (err) {
+                console.warn(`⚠️ Could not connect audio track:`, err);
+              }
+            });
+          }
         } catch (error) {
-          console.warn(`⚠️ Could not connect audio element ${index + 1}:`, error);
+          console.warn(`⚠️ Could not process media element ${index}:`, error);
         }
       });
       
-      // Also add local microphone audio if available
+      // Also add local microphone audio if not already captured
       if (localStreamRef.current) {
         const audioTracks = localStreamRef.current.getAudioTracks();
         if (audioTracks.length > 0) {
@@ -254,12 +266,15 @@ function VideoChatLiveKitInner({
             const localAudioStream = new MediaStream([audioTracks[0]]);
             const localSource = audioContext.createMediaStreamSource(localAudioStream);
             localSource.connect(mixedAudioDestination);
+            audioSourcesAdded++;
             console.log('✅ Added local microphone audio');
           } catch (error) {
-            console.warn('⚠️ Could not add local audio:', error);
+            console.warn('⚠️ Could not add local audio (may already be connected):', error);
           }
         }
       }
+      
+      console.log(`🎙️ Total audio sources mixed: ${audioSourcesAdded}`);
       
       // Add mixed audio track to canvas stream
       const mixedAudioTracks = mixedAudioDestination.stream.getAudioTracks();
