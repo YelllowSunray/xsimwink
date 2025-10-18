@@ -388,6 +388,7 @@ export class PerformerService {
         rating: 4.9,
         totalRatings: 156,
         tags: ["Interactive", "Roleplay", "JOI", "Dominant"],
+        categories: ["fun", "sensual"],
         connectionFee: 2.99,
         bio: "Experienced performer who loves interactive sessions and roleplay. Always ready to make your fantasies come true! 💋",
         preferences: {
@@ -421,6 +422,7 @@ export class PerformerService {
         rating: 4.8,
         totalRatings: 203,
         tags: ["Dominant", "Fetish", "Experienced", "BDSM"],
+        categories: ["sensual", "fun"],
         connectionFee: 3.99,
         bio: "Dominant mistress with years of experience. I specialize in fetish content and BDSM sessions. Not for beginners! 🔥",
         preferences: {
@@ -454,6 +456,7 @@ export class PerformerService {
         rating: 4.7,
         totalRatings: 89,
         tags: ["Sweet", "Playful", "New", "GFE"],
+        categories: ["connection", "sensual"],
         connectionFee: 1.99,
         bio: "Sweet and playful girl next door. New to the scene but eager to please! Let's have some fun together 😘",
         preferences: {
@@ -488,6 +491,7 @@ export class PerformerService {
         rating: 4.6,
         totalRatings: 134,
         tags: ["Fit", "Friendly", "Open-minded", "Muscle"],
+        categories: ["connection", "fun"],
         connectionFee: 2.49,
         bio: "Fit and friendly guy who's open to all kinds of fun. Great for couples or solo sessions. Let's get wild! 💪",
         preferences: {
@@ -521,6 +525,7 @@ export class PerformerService {
         rating: 4.9,
         totalRatings: 267,
         tags: ["Energetic", "Fun", "JOI", "Interactive"],
+        categories: ["fun", "sensual"],
         connectionFee: 3.49,
         bio: "High energy performer who loves to have fun! Specializing in JOI and interactive shows. Always up for anything! ⚡",
         preferences: {
@@ -554,6 +559,7 @@ export class PerformerService {
         rating: 4.8,
         totalRatings: 198,
         tags: ["Sensual", "Intimate", "GFE", "Romantic"],
+        categories: ["sensual", "connection"],
         connectionFee: 2.99,
         bio: "Sensual and intimate experiences are my specialty. I love creating genuine connections and romantic moments. 🌙",
         preferences: {
