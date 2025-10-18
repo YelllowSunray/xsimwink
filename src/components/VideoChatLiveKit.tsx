@@ -1666,7 +1666,7 @@ function CustomVideoUI({
   }, [connectionStatus]);
 
   // Render function for a single participant tile
-  const renderParticipantTile = (participant: typeof participants[0], isSelf: boolean = false) => {
+  const renderParticipantTile = (participant: typeof participants[0], isSelf: boolean = false, isMainFeed: boolean = false) => {
     // Safety check
     if (!participant || !participant.identity) {
       return null;
@@ -1682,7 +1682,7 @@ function CustomVideoUI({
     ) as TrackReference | undefined;
 
   return (
-      <div key={participant.identity} className="relative bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center aspect-video">
+      <div key={participant.identity} className={`relative bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center ${isMainFeed ? 'w-full h-full' : 'aspect-video'}`}>
         {videoTrack ? (
           <>
           <VideoTrack
@@ -1690,7 +1690,7 @@ function CustomVideoUI({
             style={{ 
               width: "100%", 
               height: "100%", 
-                objectFit: "contain",
+                objectFit: isMainFeed ? "contain" : "contain",
                 transform: isSelf ? (visualEffect === 'mirror' ? "scaleX(-1) scaleY(-1)" : "scaleX(-1)") : undefined,
                 filter: isSelf ? getVisualEffectCSS(visualEffect) : 'none'
               }}
@@ -1735,11 +1735,11 @@ function CustomVideoUI({
         <div className="absolute inset-0 bg-black flex items-center justify-center">
           {remoteParticipants && remoteParticipants.length > 0 && remoteParticipants[0] ? (
             <>
-              {renderParticipantTile(remoteParticipants[0], false)}
+              {renderParticipantTile(remoteParticipants[0], false, true)}
               {/* Local Video (Picture-in-Picture) */}
               {localParticipant && localParticipant.identity && (
                 <div className="absolute top-4 right-4 w-36 h-28 md:w-48 md:h-36 rounded-lg overflow-hidden border-2 border-pink-500 shadow-2xl">
-                  {renderParticipantTile(localParticipant, true)}
+                  {renderParticipantTile(localParticipant, true, false)}
                 </div>
               )}
             </>
