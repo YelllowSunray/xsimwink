@@ -915,72 +915,28 @@ function VideoChatLiveKitInner({
     };
   }, [partnerId, user?.uid]);
 
-  // Initialize audio effects pipeline and start video processing
+  // Initialize effects pipeline only when effects are first used
   useEffect(() => {
-    const initEffects = async () => {
+    const initEffectsWhenNeeded = async () => {
+      // Only initialize if effects are active and not already initialized
+      if ((audioEffect === 'none' && visualEffect === 'none') || 
+          (audioEffectContextRef.current && processedVideoTrack)) {
+        return;
+      }
+      
       try {
-        // Get microphone and camera access
-        const stream = await navigator.mediaDevices.getUserMedia({ 
-          audio: true,
-          video: { width: 640, height: 480 }
-        });
+        console.log('🎨 Initializing effects pipeline...');
         
-        // Initialize audio effects
-        const audioContext = new AudioContext();
-        audioEffectContextRef.current = audioContext;
-        
-        const audioSource = audioContext.createMediaStreamSource(stream);
-        audioSourceNodeRef.current = audioSource;
-        
-        const audioDestination = audioContext.createMediaStreamDestination();
-        audioDestinationRef.current = audioDestination;
-        
-        // Start with no audio effect (direct connection)
-        audioSource.connect(audioDestination);
-        
-        const audioTrack = audioDestination.stream.getAudioTracks()[0];
-        setProcessedAudioTrack(audioTrack);
-        
-        console.log('🎵 Audio effects pipeline initialized');
-        
-        // Initialize video effects processing
-        const videoStream = new MediaStream(stream.getVideoTracks());
-        startVideoEffectProcessing(videoStream);
-        
-        console.log('🎥 Video effects pipeline initialized');
+        // We'll initialize effects processing when user first applies an effect
+        // For now, just log that we're ready
         
       } catch (error) {
         console.warn('Could not initialize effects:', error);
       }
     };
     
-    initEffects();
-    
-    return () => {
-      // Cleanup audio effects
-      if (audioEffectContextRef.current) {
-        audioEffectContextRef.current.close();
-        audioEffectContextRef.current = null;
-      }
-      currentAudioEffectNodesRef.current = [];
-      
-      // Cleanup video effects
-      stopVideoEffectProcessing();
-    };
-  }, []);
-
-  // Update audio effects when audioEffect changes
-  useEffect(() => {
-    if (audioEffect !== 'none') {
-      applyAudioEffect(audioEffect);
-      
-      // Update processed audio track
-      if (audioDestinationRef.current) {
-        const newAudioTrack = audioDestinationRef.current.stream.getAudioTracks()[0];
-        setProcessedAudioTrack(newAudioTrack);
-      }
-    }
-  }, [audioEffect]);
+    initEffectsWhenNeeded();
+  }, [audioEffect, visualEffect]);
 
   const handleDisconnect = async () => {
     const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -1024,15 +980,13 @@ function VideoChatLiveKitInner({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  // Wait for token and processed tracks before connecting
-  if (!token || !processedAudioTrack || !processedVideoTrack) {
+  // Wait for token before connecting
+  if (!token) {
     return (
       <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-pink-500 mx-auto mb-4"></div>
-          <p className="text-white text-lg">
-            {!token ? `Connecting to ${partnerName}...` : 'Initializing effects...'}
-          </p>
+          <p className="text-white text-lg">Connecting to {partnerName}...</p>
         </div>
       </div>
     );
@@ -1041,8 +995,8 @@ function VideoChatLiveKitInner({
   return (
     <div className="fixed inset-0 bg-black z-50">
       <LiveKitRoom
-        video={false}
-        audio={false}
+        video={true}
+        audio={true}
         token={token}
         serverUrl={serverUrl}
         connect={true}
@@ -1128,46 +1082,50 @@ function CustomVideoUI({
   ]);
   const room = useRoomContext();
   
-  // Publish processed tracks when room connects
+  // Replace tracks with processed versions when effects are active
   React.useEffect(() => {
-    const publishProcessedTracks = async () => {
-      if (!room || !processedVideoTrack || !processedAudioTrack) return;
+    const replaceTracksWithEffects = async () => {
+      if (!room || room.state !== 'connected') return;
+      
+      // Only replace tracks if we have effects active (not 'none')
+      const hasEffects = (audioEffect !== 'none' || visualEffect !== 'none') && 
+                         processedVideoTrack && processedAudioTrack;
+      
+      if (!hasEffects) return;
       
       try {
-        // Wait for room to be connected
-        if (room.state !== 'connected') {
-          await new Promise<void>((resolve) => {
-            const checkConnection = () => {
-              if (room.state === 'connected') {
-                resolve();
-              } else {
-                setTimeout(checkConnection, 100);
-              }
-            };
-            checkConnection();
+        // Get current published tracks
+        const currentVideoTrack = room.localParticipant.getTrack('camera')?.track;
+        const currentAudioTrack = room.localParticipant.getTrack('microphone')?.track;
+        
+        // Replace video track if we have a processed one
+        if (processedVideoTrack && currentVideoTrack) {
+          await room.localParticipant.unpublishTrack(currentVideoTrack);
+          await room.localParticipant.publishTrack(processedVideoTrack, {
+            name: 'camera',
+            simulcast: true,
           });
+          console.log('✅ Replaced video track with effects');
         }
         
-        // Publish video track with effects
-        await room.localParticipant.publishTrack(processedVideoTrack, {
-          name: 'camera',
-          simulcast: true,
-        });
-        console.log('✅ Published processed video track');
-        
-        // Publish audio track with effects
-        await room.localParticipant.publishTrack(processedAudioTrack, {
-          name: 'microphone',
-        });
-        console.log('✅ Published processed audio track');
+        // Replace audio track if we have a processed one
+        if (processedAudioTrack && currentAudioTrack) {
+          await room.localParticipant.unpublishTrack(currentAudioTrack);
+          await room.localParticipant.publishTrack(processedAudioTrack, {
+            name: 'microphone',
+          });
+          console.log('✅ Replaced audio track with effects');
+        }
         
       } catch (error) {
-        console.error('Error publishing processed tracks:', error);
+        console.error('Error replacing tracks with effects:', error);
       }
     };
     
-    publishProcessedTracks();
-  }, [room, processedVideoTrack, processedAudioTrack]);
+    // Small delay to ensure tracks are published first
+    const timeoutId = setTimeout(replaceTracksWithEffects, 1000);
+    return () => clearTimeout(timeoutId);
+  }, [room, processedVideoTrack, processedAudioTrack, audioEffect, visualEffect]);
   
   // Track who is recording (participantIdentity -> participantName)
   const [recordingParticipants, setRecordingParticipants] = React.useState<Map<string, string>>(new Map());
