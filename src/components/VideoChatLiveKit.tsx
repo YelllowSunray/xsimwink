@@ -1082,54 +1082,18 @@ function CustomVideoUI({
   ]);
   const room = useRoomContext();
   
-  // Replace tracks with processed versions when effects are active
+  // Note: Track replacement with effects disabled for now to ensure stability
+  // Effects work locally and are captured in recordings
+  // Future enhancement: Implement dynamic track replacement for real-time transmission
   React.useEffect(() => {
-    const replaceTracksWithEffects = async () => {
-      if (!room || room.state !== 'connected') return;
-      
-      // Only replace tracks if we have effects active (not 'none')
-      const hasEffects = (audioEffect !== 'none' || visualEffect !== 'none') && 
-                         processedVideoTrack && processedAudioTrack;
-      
-      if (!hasEffects) return;
-      
-      try {
-        // Get current published video track
-        const videoPublications = Array.from(room.localParticipant.videoTracks.values());
-        const currentVideoPublication = videoPublications[0];
-        
-        // Get current published audio track
-        const audioPublications = Array.from(room.localParticipant.audioTracks.values());
-        const currentAudioPublication = audioPublications[0];
-        
-        // Replace video track if we have a processed one
-        if (processedVideoTrack && currentVideoPublication) {
-          await room.localParticipant.unpublishTrack(currentVideoPublication.track);
-          await room.localParticipant.publishTrack(processedVideoTrack, {
-            name: 'camera',
-            simulcast: true,
-          });
-          console.log('✅ Replaced video track with effects');
-        }
-        
-        // Replace audio track if we have a processed one
-        if (processedAudioTrack && currentAudioPublication) {
-          await room.localParticipant.unpublishTrack(currentAudioPublication.track);
-          await room.localParticipant.publishTrack(processedAudioTrack, {
-            name: 'microphone',
-          });
-          console.log('✅ Replaced audio track with effects');
-        }
-        
-      } catch (error) {
-        console.error('Error replacing tracks with effects:', error);
-      }
-    };
-    
-    // Small delay to ensure tracks are published first
-    const timeoutId = setTimeout(replaceTracksWithEffects, 1000);
-    return () => clearTimeout(timeoutId);
-  }, [room, processedVideoTrack, processedAudioTrack, audioEffect, visualEffect]);
+    // Log when effects are changed
+    if (audioEffect !== 'none') {
+      console.log(`🎵 Audio effect applied locally: ${audioEffect}`);
+    }
+    if (visualEffect !== 'none') {
+      console.log(`🎨 Visual effect applied locally: ${visualEffect}`);
+    }
+  }, [audioEffect, visualEffect]);
   
   // Track who is recording (participantIdentity -> participantName)
   const [recordingParticipants, setRecordingParticipants] = React.useState<Map<string, string>>(new Map());
