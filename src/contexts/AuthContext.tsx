@@ -62,6 +62,7 @@ interface RecordedSession {
   price: number;
   isPublic: boolean;
   thumbnail?: string;
+  videoUrl?: string;
 }
 
 interface AuthContextType {
@@ -76,6 +77,7 @@ interface AuthContextType {
   removeFavorite: (performerId: string) => Promise<void>;
   addSessionHistory: (session: SessionHistory) => Promise<void>;
   addRecording: (recording: RecordedSession) => Promise<void>;
+  deleteRecording: (recordingId: string) => Promise<void>;
   updateWallet: (amount: number, type: 'earn' | 'spend') => Promise<void>;
 }
 
@@ -369,6 +371,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     await updateProfile({ recordings: updatedRecordings });
   };
 
+  const deleteRecording = async (recordingId: string) => {
+    if (!user || !userProfile) throw new Error("No user logged in");
+    
+    const updatedRecordings = userProfile.recordings.filter(r => r.id !== recordingId);
+    await updateProfile({ recordings: updatedRecordings });
+  };
+
   const updateWallet = async (amount: number, type: 'earn' | 'spend') => {
     if (!user || !userProfile) throw new Error("No user logged in");
     
@@ -397,6 +406,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     removeFavorite,
     addSessionHistory,
     addRecording,
+    deleteRecording,
     updateWallet,
   };
 

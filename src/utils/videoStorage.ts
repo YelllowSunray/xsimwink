@@ -61,96 +61,143 @@ export class VideoStorageService {
     }
   ): Promise<VideoUploadResult> {
     try {
-      const recordingId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log('📹 Starting recording upload...');
+      console.log('📦 Blob size:', (videoBlob.size / 1024 / 1024).toFixed(2), 'MB');
+      console.log('👤 Owner ID:', metadata.ownerId);
       
-      // Create video file reference
-      const videoRef = ref(this.storage, `recordings/${recordingId}/video.webm`);
+      const recordingId = `rec_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      console.log('🆔 Recording ID:', recordingId);
+      
+      // Create video file reference with userId in path to match storage rules
+      const videoPath = `recordings/${metadata.ownerId}/${recordingId}/video.webm`;
+      console.log('📂 Upload path:', videoPath);
+      const videoRef = ref(this.storage, videoPath);
       
       // Upload video
-      console.log('Uploading video...');
-      const videoSnapshot = await uploadBytes(videoRef, videoBlob);
-      const videoUrl = await getDownloadURL(videoSnapshot.ref);
+      console.log('⬆️ Uploading video to Firebase Storage...');
+      try {
+        const videoSnapshot = await uploadBytes(videoRef, videoBlob);
+        console.log('✅ Video uploaded successfully');
+        const videoUrl = await getDownloadURL(videoSnapshot.ref);
+        console.log('🔗 Video URL:', videoUrl);
+        
+        // Generate thumbnail (simplified - in production use video processing service)
+        console.log('🖼️ Generating thumbnail...');
+        const thumbnailBlob = await this.generateThumbnailBlob(videoBlob);
+        let thumbnailUrl: string | undefined;
+        
+        if (thumbnailBlob) {
+          console.log('⬆️ Uploading thumbnail...');
+          const thumbnailRef = ref(this.storage, `recordings/${metadata.ownerId}/${recordingId}/thumbnail.jpg`);
+          const thumbnailSnapshot = await uploadBytes(thumbnailRef, thumbnailBlob);
+          thumbnailUrl = await getDownloadURL(thumbnailSnapshot.ref);
+          console.log('✅ Thumbnail uploaded');
+        }
+        
+        // Get video duration (simplified)
+        console.log('⏱️ Getting video duration...');
+        const duration = await this.getVideoDuration(videoBlob);
+        console.log('⏱️ Duration:', duration, 'seconds');
+        
+        // Save recording metadata to Firestore
+        console.log('💾 Saving metadata to Firestore...');
+        const recordingData: any = {
+          title: metadata.title,
+          ownerId: metadata.ownerId,
+          ownerName: metadata.ownerName,
+          duration,
+          size: videoBlob.size,
+          price: metadata.price,
+          isPublic: metadata.isPublic,
+          tags: metadata.tags || [],
+          videoUrl,
+          views: 0,
+          purchases: 0,
+          earnings: 0,
+          createdAt: new Date(),
+          updatedAt: new Date()
+        };
+        
+        // Only add optional fields if they have values (Firestore doesn't allow undefined)
+        if (metadata.description) recordingData.description = metadata.description;
+        if (metadata.partnerId) recordingData.partnerId = metadata.partnerId;
+        if (metadata.partnerName) recordingData.partnerName = metadata.partnerName;
+        if (thumbnailUrl) recordingData.thumbnailUrl = thumbnailUrl;
+        
+        const docRef = await addDoc(collection(db, 'recordings'), recordingData);
+        console.log('✅ Metadata saved to Firestore');
+        
+        console.log('🎉 Recording upload complete!');
+        
+        return {
+          url: videoUrl,
+          thumbnailUrl,
+          duration,
+          size: videoBlob.size,
+          recordingId: docRef.id
+        };
+      } catch (uploadError) {
+        console.error('❌ Upload error details:', uploadError);
+        if (uploadError instanceof Error) {
+          console.error('Error name:', uploadError.name);
+          console.error('Error message:', uploadError.message);
+          console.error('Error stack:', uploadError.stack);
+        }
+        throw uploadError;
+      }
+    } catch (error) {
+      console.error('❌ Fatal error uploading recording:', error);
       
-      // Generate thumbnail (simplified - in production use video processing service)
-      const thumbnailBlob = await this.generateThumbnailBlob(videoBlob);
-      let thumbnailUrl: string | undefined;
-      
-      if (thumbnailBlob) {
-        const thumbnailRef = ref(this.storage, `recordings/${recordingId}/thumbnail.jpg`);
-        const thumbnailSnapshot = await uploadBytes(thumbnailRef, thumbnailBlob);
-        thumbnailUrl = await getDownloadURL(thumbnailSnapshot.ref);
+      // Provide more specific error messages
+      let errorMessage = 'Unknown error';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // Check for common Firebase errors
+        if (errorMessage.includes('storage/unauthorized')) {
+          errorMessage = 'Permission denied. Check your Firebase Storage rules.';
+        } else if (errorMessage.includes('storage/quota-exceeded')) {
+          errorMessage = 'Storage quota exceeded. Upgrade your Firebase plan.';
+        } else if (errorMessage.includes('storage/unauthenticated')) {
+          errorMessage = 'Not authenticated. Please sign in and try again.';
+        }
       }
       
-      // Get video duration (simplified)
-      const duration = await this.getVideoDuration(videoBlob);
-      
-      // Save recording metadata to Firestore
-      const recordingData: Omit<RecordingMetadata, 'id'> = {
-        title: metadata.title,
-        description: metadata.description,
-        ownerId: metadata.ownerId,
-        ownerName: metadata.ownerName,
-        partnerId: metadata.partnerId,
-        partnerName: metadata.partnerName,
-        duration,
-        size: videoBlob.size,
-        price: metadata.price,
-        isPublic: metadata.isPublic,
-        tags: metadata.tags || [],
-        thumbnailUrl,
-        videoUrl,
-        views: 0,
-        purchases: 0,
-        earnings: 0,
-        createdAt: new Date(),
-        updatedAt: new Date()
-      };
-      
-      const docRef = await addDoc(collection(db, 'recordings'), recordingData);
-      
-      console.log('Recording uploaded successfully');
-      
-      return {
-        url: videoUrl,
-        thumbnailUrl,
-        duration,
-        size: videoBlob.size,
-        recordingId: docRef.id
-      };
-    } catch (error) {
-      console.error('Error uploading recording:', error);
-      
-      // Fallback to mock data for development
-      const mockResult: VideoUploadResult = {
-        url: `https://storage.example.com/videos/${Date.now()}.webm`,
-        thumbnailUrl: `https://storage.example.com/thumbnails/${Date.now()}.jpg`,
-        duration: Math.floor(Math.random() * 1800) + 300,
-        size: videoBlob.size,
-        recordingId: `mock_${Date.now()}`
-      };
-      
-      return mockResult;
+      throw new Error(`Failed to upload recording: ${errorMessage}`);
     }
   }
 
-  static async deleteRecording(recordingId: string): Promise<void> {
+  static async deleteRecording(recordingId: string, ownerId: string): Promise<void> {
     try {
-      // Delete from Firestore
-      await deleteDoc(doc(db, 'recordings', recordingId));
+      console.log(`🗑️ VideoStorageService: Deleting recording ${recordingId} for user ${ownerId}`);
       
-      // Delete files from Storage
-      const videoRef = ref(this.storage, `recordings/${recordingId}/video.webm`);
-      const thumbnailRef = ref(this.storage, `recordings/${recordingId}/thumbnail.jpg`);
+      // Try to delete from Firestore (but don't fail if it doesn't exist)
+      try {
+        await deleteDoc(doc(db, 'recordings', recordingId));
+        console.log('✅ Deleted from Firestore recordings collection');
+      } catch (firestoreError) {
+        console.warn('⚠️ Could not delete from Firestore (document may not exist):', firestoreError);
+        // Continue - this is okay, recording might only be in user profile
+      }
+      
+      // Delete files from Storage with correct path (includes ownerId)
+      const videoRef = ref(this.storage, `recordings/${ownerId}/${recordingId}/video.webm`);
+      const thumbnailRef = ref(this.storage, `recordings/${ownerId}/${recordingId}/thumbnail.jpg`);
       
       await Promise.all([
-        deleteObject(videoRef).catch(() => {}), // Ignore if file doesn't exist
-        deleteObject(thumbnailRef).catch(() => {})
+        deleteObject(videoRef).catch((err) => {
+          console.warn('⚠️ Could not delete video file:', err.code);
+        }),
+        deleteObject(thumbnailRef).catch((err) => {
+          console.warn('⚠️ Could not delete thumbnail:', err.code);
+        })
       ]);
       
-      console.log(`Deleted recording: ${recordingId}`);
+      console.log(`✅ VideoStorageService: Completed delete for ${recordingId}`);
     } catch (error) {
-      console.error('Error deleting recording:', error);
-      throw error;
+      console.error('❌ Error deleting recording:', error);
+      // Don't throw - we want to continue even if storage deletion fails
+      console.warn('⚠️ Continuing despite storage deletion errors');
     }
   }
 

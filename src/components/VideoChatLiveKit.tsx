@@ -51,8 +51,10 @@ import {
   VideoTrack,
   AudioTrack,
   TrackReference,
+  useRoomContext,
+  useDataChannel,
 } from "@livekit/components-react";
-import { Track } from "livekit-client";
+import { Track, DataPacket_Kind } from "livekit-client";
 import { VideoStorageService } from "@/utils/videoStorage";
 
 interface VideoChatLiveKitProps {
@@ -78,42 +80,195 @@ function VideoChatLiveKitInner({
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
   const startTimeRef = useRef<number>(Date.now());
   const localStreamRef = useRef<MediaStream | null>(null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawIntervalRef = useRef<number | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const { user, addSessionHistory, addRecording } = useAuth();
 
-  // Recording functions
-  const startRecording = () => {
-    // TODO: Implement LiveKit server-side recording
-    // Client-side recording of LiveKit calls is complex and not recommended
-    // For now, show a message
-    alert("📹 Recording feature coming soon!\n\nLiveKit server-side recording will be implemented to capture all participants' video and audio in high quality.");
-    setShowRecordingSettings(false);
-    return;
-    
-    /* Original client-side recording code (disabled)
-    if (!localStreamRef.current) return;
-
+  // Canvas Composite Recording - Captures all participants
+  const startRecording = async () => {
     try {
-      const options = { mimeType: 'video/webm;codecs=vp9' };
-      const recorder = new MediaRecorder(localStreamRef.current, options);
+      // Get all video elements in the LiveKit room
+      const videoElements = document.querySelectorAll('video');
+      
+      if (videoElements.length === 0) {
+        alert("⚠️ No video streams found. Please wait for participants to connect first.");
+        setShowRecordingSettings(false);
+        return;
+      }
+
+      // Check browser support
+      const mimeType = MediaRecorder.isTypeSupported('video/webm;codecs=vp9')
+        ? 'video/webm;codecs=vp9'
+        : MediaRecorder.isTypeSupported('video/webm')
+        ? 'video/webm'
+        : 'video/mp4';
+
+      if (!mimeType) {
+        alert("❌ Recording not supported in this browser. Please use Chrome, Edge, or Safari.");
+        setShowRecordingSettings(false);
+        return;
+      }
+
+      // Create canvas for composite recording
+      const canvas = document.createElement('canvas');
+      canvas.width = 1920;
+      canvas.height = 1080;
+      const ctx = canvas.getContext('2d', { 
+        willReadFrequently: true,
+        alpha: false 
+      });
+      
+      if (!ctx) {
+        alert("❌ Failed to create recording canvas.");
+        setShowRecordingSettings(false);
+        return;
+      }
+
+      canvasRef.current = canvas;
+
+      // Calculate grid layout based on number of videos
+      const getGridLayout = (count: number) => {
+        if (count === 1) return { cols: 1, rows: 1 };
+        if (count === 2) return { cols: 2, rows: 1 };
+        if (count <= 4) return { cols: 2, rows: 2 };
+        if (count <= 6) return { cols: 3, rows: 2 };
+        if (count <= 9) return { cols: 3, rows: 3 };
+        if (count <= 12) return { cols: 4, rows: 3 };
+        return { cols: 5, rows: 4 };
+      };
+
+      // Draw all videos to canvas at 30fps using requestAnimationFrame
+      let lastFrameTime = 0;
+      const fps = 30;
+      const frameInterval = 1000 / fps;
+
+      const drawFrame = (timestamp: number) => {
+        if (!canvasRef.current || !ctx) return;
+
+        // Throttle to desired FPS
+        if (timestamp - lastFrameTime < frameInterval) {
+          animationFrameRef.current = requestAnimationFrame(drawFrame);
+          return;
+        }
+        lastFrameTime = timestamp;
+
+        // Get current video elements (may change as people join/leave)
+        const currentVideos = Array.from(document.querySelectorAll('video')).filter(
+          (v: HTMLVideoElement) => v.readyState >= 2 && v.videoWidth > 0
+        );
+
+        if (currentVideos.length === 0) {
+          animationFrameRef.current = requestAnimationFrame(drawFrame);
+          return;
+        }
+
+        const layout = getGridLayout(currentVideos.length);
+        const cellWidth = canvas.width / layout.cols;
+        const cellHeight = canvas.height / layout.rows;
+
+        // Clear canvas with black background
+        ctx.fillStyle = '#000000';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        // Draw each video in grid
+        currentVideos.forEach((video: HTMLVideoElement, index) => {
+          const row = Math.floor(index / layout.cols);
+          const col = index % layout.cols;
+          const x = col * cellWidth;
+          const y = row * cellHeight;
+
+          try {
+            // Calculate aspect ratio to fit video in cell
+            const videoAspect = video.videoWidth / video.videoHeight;
+            const cellAspect = cellWidth / cellHeight;
+            
+            let drawWidth = cellWidth;
+            let drawHeight = cellHeight;
+            let drawX = x;
+            let drawY = y;
+
+            if (videoAspect > cellAspect) {
+              // Video is wider than cell
+              drawHeight = cellWidth / videoAspect;
+              drawY = y + (cellHeight - drawHeight) / 2;
+            } else {
+              // Video is taller than cell
+              drawWidth = cellHeight * videoAspect;
+              drawX = x + (cellWidth - drawWidth) / 2;
+            }
+
+            ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+
+            // Add subtle border between videos
+            ctx.strokeStyle = '#333333';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(x, y, cellWidth, cellHeight);
+          } catch (e) {
+            // Video might not be ready yet
+            console.debug('Skipping video frame:', e);
+          }
+        });
+
+        animationFrameRef.current = requestAnimationFrame(drawFrame);
+      };
+
+      // Start drawing frames
+      animationFrameRef.current = requestAnimationFrame(drawFrame);
+
+      // Capture canvas as video stream
+      const canvasStream = canvas.captureStream(fps);
+      
+      // Add audio from local microphone
+      if (localStreamRef.current) {
+        const audioTracks = localStreamRef.current.getAudioTracks();
+        if (audioTracks.length > 0) {
+          canvasStream.addTrack(audioTracks[0]);
+        }
+      }
+
+      // Create MediaRecorder
+      const recorder = new MediaRecorder(canvasStream, {
+        mimeType,
+        videoBitsPerSecond: 2500000, // 2.5 Mbps for good quality
+      });
+
+      const chunks: Blob[] = [];
       
       recorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          setRecordedChunks((prev: Blob[]) => [...prev, event.data]);
+        if (event.data && event.data.size > 0) {
+          chunks.push(event.data);
         }
       };
       
       recorder.onstop = async () => {
-        const blob = new Blob(recordedChunks, { type: 'video/webm' });
+        console.log('Recording stopped, processing...');
         
+        // Stop drawing frames
+        if (animationFrameRef.current) {
+          cancelAnimationFrame(animationFrameRef.current);
+          animationFrameRef.current = null;
+        }
+
+        if (chunks.length === 0) {
+          console.error('No recording data');
+          alert('❌ Recording failed - no data captured');
+          return;
+        }
+
+        const blob = new Blob(chunks, { type: mimeType });
+        console.log(`Recording blob size: ${(blob.size / 1024 / 1024).toFixed(2)} MB`);
+
         try {
-          // Upload video to storage
+          // Upload video to Firebase Storage
+          console.log('Uploading recording to Firebase...');
           const uploadResult = await VideoStorageService.uploadRecording(blob, {
-            title: recordingTitle || `Session with ${partnerName}`,
+            title: recordingTitle || `Group Call Recording`,
             ownerId: user?.uid || '',
             ownerName: user?.displayName || 'User',
             partnerId: partnerId,
             partnerName: partnerName,
-            price: recordingPrice,
+            price: 0, // Free recordings
             isPublic: false,
           });
           
@@ -122,38 +277,69 @@ function VideoChatLiveKitInner({
             id: uploadResult.recordingId || Date.now().toString(),
             partnerId: partnerId,
             partnerUsername: partnerName,
-            title: recordingTitle || `Session with ${partnerName}`,
+            title: recordingTitle || `Group Call Recording`,
             duration: callDuration,
             timestamp: new Date(),
             views: 0,
             earnings: 0,
-            price: recordingPrice,
+            price: 0,
             isPublic: false,
             thumbnail: uploadResult.thumbnailUrl,
+            videoUrl: uploadResult.url,
           });
           
-          console.log("Recording saved successfully");
+          console.log('✅ Recording saved successfully!');
+          alert('✅ Recording saved successfully! Check your Recordings page.');
         } catch (error) {
-          console.error("Failed to save recording:", error);
+          console.error('Failed to save recording:', error);
+          alert('❌ Failed to save recording. Please check your Firebase Storage settings.');
         }
       };
-      
-      recorder.start();
+
+      recorder.onerror = (event) => {
+        console.error('MediaRecorder error:', event);
+        alert('❌ Recording error occurred');
+      };
+
+      // Start recording
+      recorder.start(1000); // Collect data every second
       setMediaRecorder(recorder);
       setIsRecording(true);
-      setRecordedChunks([]);
+      setRecordedChunks([]); // Reset for new recording
+      setShowRecordingSettings(false);
+
+      console.log('🎥 Canvas recording started');
     } catch (error) {
-      console.error("Failed to start recording:", error);
+      console.error('Failed to start recording:', error);
+      alert('❌ Recording failed to start. Please try again.');
+      setShowRecordingSettings(false);
     }
-    */
   };
 
   const stopRecording = async () => {
+    console.log('🛑 Stopping recording...');
+    
+    // Stop canvas drawing animation
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    // Stop MediaRecorder
     if (mediaRecorder && mediaRecorder.state === 'recording') {
       mediaRecorder.stop();
       setIsRecording(false);
       setMediaRecorder(null);
       setShowRecordingSettings(false);
+    }
+
+    // Clean up canvas
+    if (canvasRef.current) {
+      const ctx = canvasRef.current.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+      }
+      canvasRef.current = null;
     }
   };
 
@@ -248,6 +434,17 @@ function VideoChatLiveKitInner({
 
   const handleDisconnect = async () => {
     const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
+
+    // Stop recording if active
+    if (isRecording) {
+      await stopRecording();
+    }
+
+    // Clean up canvas drawing if still running
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
 
     // Clean up local stream to release camera/mic
     if (localStreamRef.current) {
@@ -355,12 +552,93 @@ function CustomVideoUI({
     { source: Track.Source.Camera, withPlaceholder: true },
     { source: Track.Source.Microphone, withPlaceholder: false },
   ]);
+  const room = useRoomContext();
+  
+  // Track who is recording (participantIdentity -> participantName)
+  const [recordingParticipants, setRecordingParticipants] = React.useState<Map<string, string>>(new Map());
+  
+  // Listen for recording state messages from other participants
+  useDataChannel('recording-state', (message) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(message.payload));
+      const senderIdentity = message.from?.identity || 'Unknown';
+      const senderName = message.from?.name || data.participantName || 'Someone';
+      
+      console.log('📹 Recording message received:', data, 'from', senderName);
+      
+      setRecordingParticipants(prev => {
+        const updated = new Map(prev);
+        if (data.isRecording) {
+          updated.set(senderIdentity, senderName);
+          console.log(`🔴 ${senderName} started recording`);
+        } else {
+          updated.delete(senderIdentity);
+          console.log(`⏹️ ${senderName} stopped recording`);
+        }
+        return updated;
+      });
+    } catch (error) {
+      console.error('Error parsing recording message:', error);
+    }
+  });
   
   // Group call if there are 3+ people total (including you)
   const isGroupCall = participants.length >= 3;
   const remoteParticipants = participants.filter((p) => !p.isLocal);
   const localParticipant = participants.find((p) => p.isLocal);
   const totalPeople = participants.length;
+  
+  // Broadcast recording state when it changes
+  React.useEffect(() => {
+    let isMounted = true;
+    
+    // Guard: Check if room and participant exist and are connected
+    if (!room || !localParticipant) {
+      return;
+    }
+    
+    // Check if the room is still connected
+    if (room.state !== 'connected') {
+      return;
+    }
+    
+    // Small delay to ensure connection is stable
+    const timeoutId = setTimeout(() => {
+      if (!isMounted || room.state !== 'connected') return;
+      
+      try {
+        const message = JSON.stringify({
+          isRecording,
+          participantName: localParticipant.name || 'Unknown'
+        });
+        
+        const encoder = new TextEncoder();
+        const data = encoder.encode(message);
+        
+        // Send to all participants (with connection check)
+        if (room.localParticipant && room.state === 'connected' && isMounted) {
+          room.localParticipant.publishData(data, { 
+            reliable: true,
+            topic: 'recording-state'
+          }).then(() => {
+            if (isMounted) {
+              console.log(`📡 Broadcast recording state: ${isRecording ? 'RECORDING' : 'STOPPED'}`);
+            }
+          }).catch((error) => {
+            // Silently ignore all errors - they're usually from disconnections
+            // which are expected and not critical for recording notifications
+          });
+        }
+      } catch (error) {
+        // Silently ignore - non-critical feature
+      }
+    }, 100); // Small delay to ensure stable connection
+    
+    return () => {
+      isMounted = false;
+      clearTimeout(timeoutId);
+    };
+  }, [isRecording, room, localParticipant]);
 
   // Calculate grid layout based on participant count
   // Mobile-first: larger feeds for smaller groups
@@ -492,8 +770,30 @@ function CustomVideoUI({
           </div>
         )}
 
+        {/* Recording Notification Banner */}
+        {(isRecording || recordingParticipants.size > 0) && (
+          <div className="absolute top-0 left-0 right-0 z-30">
+            <div className="bg-red-600 text-white px-4 py-2 flex items-center justify-center gap-2 shadow-lg">
+              <div className="flex items-center gap-2">
+                <div className="w-3 h-3 bg-white rounded-full animate-pulse"></div>
+                <span className="font-semibold text-sm md:text-base">
+                  {isRecording && recordingParticipants.size === 0 && "You are recording this call"}
+                  {!isRecording && recordingParticipants.size === 1 && 
+                    `${Array.from(recordingParticipants.values())[0]} is recording`}
+                  {!isRecording && recordingParticipants.size > 1 && 
+                    `${recordingParticipants.size} people are recording`}
+                  {isRecording && recordingParticipants.size > 0 && 
+                    `You and ${recordingParticipants.size} other${recordingParticipants.size > 1 ? 's are' : ' is'} recording`}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Top Bar */}
-      <div className="absolute top-0 left-0 right-0 p-3 md:p-4 bg-gradient-to-b from-black/80 to-transparent z-20">
+      <div className={`absolute left-0 right-0 p-3 md:p-4 bg-gradient-to-b from-black/80 to-transparent z-20 ${
+        isRecording || recordingParticipants.size > 0 ? 'top-10' : 'top-0'
+      }`}>
           <div className="flex items-center justify-between">
             <div>
             <h2 className="text-white text-xl font-semibold">
@@ -567,29 +867,21 @@ function CustomVideoUI({
             <div className="space-y-4 mb-6">
               <div>
                 <label className="block text-pink-300 text-sm font-medium mb-2">
-                  Recording Title
+                  Recording Title (Optional)
                 </label>
                 <input
                   type="text"
                   value={recordingTitle}
                   onChange={(e) => setRecordingTitle(e.target.value)}
-                  placeholder={`Session with ${partnerName}`}
+                  placeholder={`Group Call Recording`}
                   className="w-full px-4 py-3 bg-black/30 border border-pink-500/30 rounded-lg text-white placeholder-gray-500 outline-none focus:ring-2 focus:ring-pink-500"
                 />
               </div>
               
-              <div>
-                <label className="block text-pink-300 text-sm font-medium mb-2">
-                  Price (for future sales)
-                </label>
-                <input
-                  type="number"
-                  value={recordingPrice}
-                  onChange={(e) => setRecordingPrice(parseFloat(e.target.value))}
-                  min="0.99"
-                  step="0.01"
-                  className="w-full px-4 py-3 bg-black/30 border border-pink-500/30 rounded-lg text-white placeholder-gray-500 outline-none focus:ring-2 focus:ring-pink-500"
-                />
+              <div className="text-gray-400 text-sm">
+                <p>💾 Recording will capture all participants in the call</p>
+                <p>🎥 Video quality: 1080p @ 30fps</p>
+                <p>📱 Works on all devices</p>
               </div>
             </div>
             
