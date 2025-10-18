@@ -111,6 +111,9 @@ function VideoChatLiveKitInner({
   const [processedAudioTrack, setProcessedAudioTrack] = useState<MediaStreamTrack | null>(null);
   const [processedVideoTrack, setProcessedVideoTrack] = useState<MediaStreamTrack | null>(null);
   
+  // Room reference for recording (will be set by CustomVideoUI)
+  const roomRef = useRef<any>(null);
+  
   const { user, addSessionHistory, addRecording } = useAuth();
 
   // Canvas Composite Recording - Captures all participants
@@ -194,12 +197,96 @@ function VideoChatLiveKitInner({
       };
       
       // Get all ready video elements
-      const videoElements = await waitForVideos(5000);
-      console.log(`📹 Total ready video elements: ${videoElements.length}`);
+      let videoElements = await waitForVideos(5000);
+      console.log(`📹 Total ready video elements from DOM: ${videoElements.length}`);
       
       videoElements.forEach((v, i) => {
         console.log(`📹 Video ${i} final check: ${v.videoWidth}x${v.videoHeight}, readyState=${v.readyState}, playing=${!v.paused}`);
       });
+      
+      // If we don't have enough videos from DOM (common on mobile), create them from LiveKit tracks
+      if (videoElements.length < 2) {
+        console.log('⚠️ Not enough videos from DOM, trying to create from LiveKit tracks...');
+        
+        const room = roomRef.current;
+        if (!room) {
+          console.error('❌ Room not available for track access');
+        } else {
+          // Get all video tracks from LiveKit room
+          const localVideoTrack = room?.localParticipant?.videoTracks?.values()?.next()?.value;
+          const remoteVideoTracks = Array.from(room?.remoteParticipants?.values() || [])
+            .flatMap((p: any) => Array.from(p.videoTracks?.values() || []));
+          
+          console.log(`🎥 LiveKit tracks: local=${!!localVideoTrack}, remote=${remoteVideoTracks.length}`);
+        
+        const createdVideos: HTMLVideoElement[] = [];
+        
+        // Create video element for local track
+        if (localVideoTrack && (localVideoTrack as any).track) {
+          const localVideo = document.createElement('video');
+          localVideo.srcObject = new MediaStream([(localVideoTrack as any).track.mediaStreamTrack]);
+          localVideo.autoplay = true;
+          localVideo.muted = true;
+          localVideo.playsInline = true;
+          localVideo.style.position = 'fixed';
+          localVideo.style.top = '-9999px'; // Hide off-screen
+          document.body.appendChild(localVideo);
+          
+          // Wait for video to be ready
+          await new Promise<void>((resolve) => {
+            const checkReady = () => {
+              if (localVideo.readyState >= 2 && localVideo.videoWidth > 0) {
+                console.log(`✅ Created local video: ${localVideo.videoWidth}x${localVideo.videoHeight}`);
+                createdVideos.push(localVideo);
+                resolve();
+              } else {
+                setTimeout(checkReady, 100);
+              }
+            };
+            checkReady();
+            setTimeout(() => resolve(), 2000); // Timeout after 2s
+          });
+        }
+        
+        // Create video elements for remote tracks
+        for (const trackPub of remoteVideoTracks) {
+          if (trackPub && (trackPub as any).track) {
+            const remoteVideo = document.createElement('video');
+            remoteVideo.srcObject = new MediaStream([(trackPub as any).track.mediaStreamTrack]);
+            remoteVideo.autoplay = true;
+            remoteVideo.playsInline = true;
+            remoteVideo.style.position = 'fixed';
+            remoteVideo.style.top = '-9999px'; // Hide off-screen
+            document.body.appendChild(remoteVideo);
+            
+            // Wait for video to be ready
+            await new Promise<void>((resolve) => {
+              const checkReady = () => {
+                if (remoteVideo.readyState >= 2 && remoteVideo.videoWidth > 0) {
+                  console.log(`✅ Created remote video: ${remoteVideo.videoWidth}x${remoteVideo.videoHeight}`);
+                  createdVideos.push(remoteVideo);
+                  resolve();
+                } else {
+                  setTimeout(checkReady, 100);
+                }
+              };
+              checkReady();
+              setTimeout(() => resolve(), 2000); // Timeout after 2s
+            });
+          }
+        }
+        
+        // Use created videos if we got more than what DOM had
+        if (createdVideos.length > videoElements.length) {
+          console.log(`✅ Using ${createdVideos.length} created videos instead of ${videoElements.length} DOM videos`);
+          videoElements = createdVideos;
+        } else if (createdVideos.length > 0) {
+          // Combine both
+          videoElements = [...videoElements, ...createdVideos];
+          console.log(`✅ Combined: ${videoElements.length} total videos`);
+        }
+        } // close else block
+      }
       
       if (videoElements.length === 0) {
         alert("⚠️ No video streams found. Please wait for participants to connect first.");
@@ -207,15 +294,7 @@ function VideoChatLiveKitInner({
         return;
       }
       
-      if (videoElements.length < 2) {
-        const proceed = confirm(`⚠️ Only ${videoElements.length} video feed found. Recording may be incomplete. Continue anyway?`);
-        if (!proceed) {
-          setShowRecordingSettings(false);
-          return;
-        }
-      }
-      
-      // Log details of each video element
+      console.log(`📹 Final video count: ${videoElements.length}`);
       videoElements.forEach((video, i) => {
         console.log(`  Video ${i}: size=${video.videoWidth}x${video.videoHeight}, readyState=${video.readyState}, paused=${video.paused}`);
       });
@@ -1432,6 +1511,7 @@ function VideoChatLiveKitInner({
           currentAudioEffectNodesRef={currentAudioEffectNodesRef}
           audioEffectContextRef={audioEffectContextRef}
           isMobile={isMobile}
+          roomRef={roomRef}
         />
       </LiveKitRoom>
     </div>
@@ -1466,6 +1546,7 @@ function CustomVideoUI({
   currentAudioEffectNodesRef,
   audioEffectContextRef,
   isMobile,
+  roomRef,
 }: {
   partnerName: string;
   callDuration: number;
@@ -1493,6 +1574,7 @@ function CustomVideoUI({
   currentAudioEffectNodesRef: React.MutableRefObject<AudioNode[]>;
   audioEffectContextRef: React.MutableRefObject<AudioContext | null>;
   isMobile: boolean;
+  roomRef: React.MutableRefObject<any>;
 }) {
   const participants = useParticipants();
   const tracks = useTracks([
@@ -1500,6 +1582,14 @@ function CustomVideoUI({
     { source: Track.Source.Microphone, withPlaceholder: false },
   ]);
   const room = useRoomContext();
+  
+  // Update roomRef for recording access
+  React.useEffect(() => {
+    if (room) {
+      roomRef.current = room;
+      console.log('✅ Room reference set for recording');
+    }
+  }, [room, roomRef]);
   
   // Handler to apply audio effects (ensures it's called properly)
   const handleAudioEffectChange = (effect: typeof audioEffect) => {
