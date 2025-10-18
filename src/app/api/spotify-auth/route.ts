@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-/**
- * Spotify Authentication API Route
- * Handles OAuth flow for Spotify Premium accounts
- */
-
 const SPOTIFY_CLIENT_ID = process.env.SPOTIFY_CLIENT_ID || '';
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET || '';
 const SPOTIFY_REDIRECT_URI = process.env.NEXT_PUBLIC_SPOTIFY_REDIRECT_URI || 'http://localhost:3000/api/spotify-callback';
@@ -23,7 +18,6 @@ export async function GET(request: NextRequest) {
   const action = searchParams.get('action');
 
   if (action === 'login') {
-    // Redirect to Spotify authorization
     const params = new URLSearchParams({
       client_id: SPOTIFY_CLIENT_ID,
       response_type: 'code',
@@ -45,7 +39,6 @@ export async function POST(request: NextRequest) {
     const { code, action } = body;
 
     if (action === 'exchange_code' && code) {
-      // Exchange authorization code for access token
       const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
         headers: {
@@ -70,7 +63,6 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'refresh_token' && body.refresh_token) {
-      // Refresh access token
       const tokenResponse = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
         headers: {

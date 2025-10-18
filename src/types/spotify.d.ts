@@ -1,6 +1,5 @@
 /**
  * Spotify Web Playback SDK Type Definitions
- * Extends the Window interface to include Spotify SDK
  */
 
 interface Window {

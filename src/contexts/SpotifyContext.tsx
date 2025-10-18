@@ -1,24 +1,31 @@
 "use client";
 
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { spotifyService, SpotifyPlaybackState, SpotifyTrack } from '@/services/SpotifyService';
+import { spotifyService, SpotifyPlaybackState, SpotifyTrack, SpotifyDevice } from '@/services/SpotifyService';
 
 interface SpotifyContextType {
   isAuthenticated: boolean;
   isPlayerReady: boolean;
   playbackState: SpotifyPlaybackState | null;
+  devices: SpotifyDevice[];
+  selectedDevice: string | null;
   login: () => Promise<void>;
   logout: () => void;
-  play: (uri?: string) => Promise<void>;
+  play: (uri?: string, sync?: boolean) => Promise<void>;
   pause: () => Promise<void>;
   resume: () => Promise<void>;
-  togglePlay: () => Promise<void>;
-  nextTrack: () => Promise<void>;
-  previousTrack: () => Promise<void>;
-  seek: (position: number) => Promise<void>;
-  setVolume: (volume: number) => Promise<void>;
+  togglePlay: (sync?: boolean) => Promise<void>;
+  setVolume: (volumePercent: number) => Promise<void>;
   searchTracks: (query: string) => Promise<SpotifyTrack[]>;
+  refreshDevices: () => Promise<void>;
+  selectDevice: (deviceId: string) => Promise<void>;
   error: string | null;
+  // Listen Together
+  listenTogether: boolean;
+  setListenTogether: (enabled: boolean) => void;
+  onSyncMessage: (callback: (data: any) => void) => void;
+  offSyncMessage: (callback: (data: any) => void) => void;
+  currentController: string | null;
 }
 
 const SpotifyContext = createContext<SpotifyContextType | undefined>(undefined);
@@ -27,30 +34,19 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [isPlayerReady, setIsPlayerReady] = useState(false);
   const [playbackState, setPlaybackState] = useState<SpotifyPlaybackState | null>(null);
+  const [devices, setDevices] = useState<SpotifyDevice[]>([]);
+  const [selectedDevice, setSelectedDeviceState] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [refreshToken, setRefreshToken] = useState<string | null>(null);
   
-  // Detect if running on mobile - Spotify Web Playback SDK doesn't work on mobile browsers
-  const [isMobile, setIsMobile] = useState(false);
-  
-  useEffect(() => {
-    if (typeof window !== 'undefined') {
-      const checkMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-      setIsMobile(checkMobile);
-      if (checkMobile) {
-        console.log('🚫 Mobile device detected - Spotify Web Playback SDK not supported on mobile browsers');
-      }
-    }
-  }, []);
+  // Listen Together state
+  const [listenTogether, setListenTogether] = useState(false);
+  const [currentController, setCurrentController] = useState<string | null>(null);
+  const [syncCallbacks, setSyncCallbacks] = useState<((data: any) => void)[]>([]);
 
   // Check for stored tokens on mount
   useEffect(() => {
-    // Don't initialize on mobile devices
-    if (isMobile) {
-      return;
-    }
-    
     const storedAccessToken = localStorage.getItem('spotify_access_token');
     const storedRefreshToken = localStorage.getItem('spotify_refresh_token');
     const tokenExpiry = localStorage.getItem('spotify_token_expiry');
@@ -60,17 +56,15 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
       const now = Date.now();
 
       if (now < expiryTime) {
-        // Token still valid
         setAccessToken(storedAccessToken);
         setRefreshToken(storedRefreshToken);
         setIsAuthenticated(true);
         initializePlayer(storedAccessToken);
       } else {
-        // Token expired, try to refresh
         refreshAccessToken(storedRefreshToken);
       }
     }
-  }, [isMobile]);
+  }, []);
 
   // Handle OAuth callback
   useEffect(() => {
@@ -80,14 +74,12 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
 
     if (errorParam) {
       setError(`Spotify authentication error: ${errorParam}`);
-      // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
       return;
     }
 
     if (code) {
       exchangeCodeForToken(code);
-      // Clean up URL
       window.history.replaceState({}, document.title, window.location.pathname);
     }
   }, []);
@@ -97,6 +89,7 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     const handleReady = () => {
       setIsPlayerReady(true);
       setError(null);
+      refreshDevices(); // Load available devices
     };
 
     const handleNotReady = () => {
@@ -135,19 +128,13 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
   }, [refreshToken]);
 
   const initializePlayer = async (token: string) => {
-    // Don't initialize on mobile devices
-    if (isMobile) {
-      console.log('🚫 Skipping Spotify initialization on mobile device');
-      return;
-    }
-    
     try {
       await spotifyService.initialize(token);
-      // Transfer playback to this device
-      await spotifyService.transferPlayback();
+      // Automatically load available devices
+      await refreshDevices();
     } catch (err) {
-      console.error('Failed to initialize Spotify player:', err);
-      setError('Failed to initialize Spotify player');
+      console.error('Failed to initialize Spotify:', err);
+      setError('Failed to initialize Spotify');
     }
   };
 
@@ -159,14 +146,11 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ action: 'exchange_code', code }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to exchange code for token');
-      }
+      if (!response.ok) throw new Error('Failed to exchange code for token');
 
       const data = await response.json();
       const { access_token, refresh_token, expires_in } = data;
 
-      // Store tokens
       localStorage.setItem('spotify_access_token', access_token);
       localStorage.setItem('spotify_refresh_token', refresh_token);
       localStorage.setItem('spotify_token_expiry', String(Date.now() + expires_in * 1000));
@@ -175,7 +159,6 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
       setRefreshToken(refresh_token);
       setIsAuthenticated(true);
 
-      // Initialize player
       await initializePlayer(access_token);
     } catch (err) {
       console.error('Failed to exchange code:', err);
@@ -191,21 +174,17 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
         body: JSON.stringify({ action: 'refresh_token', refresh_token: token }),
       });
 
-      if (!response.ok) {
-        throw new Error('Failed to refresh token');
-      }
+      if (!response.ok) throw new Error('Failed to refresh token');
 
       const data = await response.json();
       const { access_token, expires_in } = data;
 
-      // Store new access token
       localStorage.setItem('spotify_access_token', access_token);
       localStorage.setItem('spotify_token_expiry', String(Date.now() + expires_in * 1000));
 
       setAccessToken(access_token);
       setIsAuthenticated(true);
 
-      // Initialize player with new token
       await initializePlayer(access_token);
     } catch (err) {
       console.error('Failed to refresh token:', err);
@@ -241,10 +220,19 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     setError(null);
   };
 
-  const play = async (uri?: string) => {
+  const play = async (uri?: string, sync: boolean = true) => {
     try {
-      await spotifyService.play(uri);
+      await spotifyService.play(uri, selectedDevice || undefined);
       setError(null);
+      
+      // Broadcast to others if Listen Together is enabled
+      if (listenTogether && sync && uri) {
+        broadcastSync({
+          action: 'play_track',
+          uri: uri,
+          timestamp: Date.now(),
+        });
+      }
     } catch (err) {
       console.error('Failed to play:', err);
       setError('Failed to play track');
@@ -271,49 +259,28 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const togglePlay = async () => {
+  const togglePlay = async (sync: boolean = true) => {
     try {
       await spotifyService.togglePlay();
       setError(null);
+      
+      if (listenTogether && sync) {
+        const state = await spotifyService.getState();
+        broadcastSync({
+          action: 'toggle_play',
+          isPlaying: state?.isPlaying,
+          timestamp: Date.now(),
+        });
+      }
     } catch (err) {
       console.error('Failed to toggle play:', err);
       setError('Failed to toggle playback');
     }
   };
 
-  const nextTrack = async () => {
+  const setVolume = async (volumePercent: number) => {
     try {
-      await spotifyService.nextTrack();
-      setError(null);
-    } catch (err) {
-      console.error('Failed to skip track:', err);
-      setError('Failed to skip to next track');
-    }
-  };
-
-  const previousTrack = async () => {
-    try {
-      await spotifyService.previousTrack();
-      setError(null);
-    } catch (err) {
-      console.error('Failed to go back:', err);
-      setError('Failed to go to previous track');
-    }
-  };
-
-  const seek = async (position: number) => {
-    try {
-      await spotifyService.seek(position);
-      setError(null);
-    } catch (err) {
-      console.error('Failed to seek:', err);
-      setError('Failed to seek');
-    }
-  };
-
-  const setVolume = async (volume: number) => {
-    try {
-      await spotifyService.setVolume(volume);
+      await spotifyService.setVolume(volumePercent);
       setError(null);
     } catch (err) {
       console.error('Failed to set volume:', err);
@@ -333,24 +300,71 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  const refreshDevices = async () => {
+    try {
+      const deviceList = await spotifyService.getDevices();
+      setDevices(deviceList);
+      
+      // Auto-select active device or first available
+      const activeDevice = deviceList.find(d => d.is_active);
+      if (activeDevice) {
+        setSelectedDeviceState(activeDevice.id);
+      } else if (deviceList.length > 0) {
+        setSelectedDeviceState(deviceList[0].id);
+      }
+    } catch (err) {
+      console.error('Failed to refresh devices:', err);
+    }
+  };
+
+  const selectDevice = async (deviceId: string) => {
+    try {
+      await spotifyService.transferPlayback(deviceId);
+      setSelectedDeviceState(deviceId);
+    } catch (err) {
+      console.error('Failed to select device:', err);
+      setError('Failed to switch device');
+    }
+  };
+
+  // Broadcast sync message to other users
+  const broadcastSync = (data: any) => {
+    syncCallbacks.forEach(cb => cb(data));
+  };
+
+  // Listen for sync messages from other users
+  const onSyncMessage = (callback: (data: any) => void) => {
+    setSyncCallbacks(prev => [...prev, callback]);
+  };
+
+  const offSyncMessage = (callback: (data: any) => void) => {
+    setSyncCallbacks(prev => prev.filter(cb => cb !== callback));
+  };
+
   return (
     <SpotifyContext.Provider
       value={{
         isAuthenticated,
         isPlayerReady,
         playbackState,
+        devices,
+        selectedDevice,
         login,
         logout,
         play,
         pause,
         resume,
         togglePlay,
-        nextTrack,
-        previousTrack,
-        seek,
         setVolume,
         searchTracks,
+        refreshDevices,
+        selectDevice,
         error,
+        listenTogether,
+        setListenTogether,
+        onSyncMessage,
+        offSyncMessage,
+        currentController,
       }}
     >
       {children}

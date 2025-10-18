@@ -9,15 +9,19 @@ export default function SpotifyPlayer() {
     isAuthenticated,
     isPlayerReady,
     playbackState,
+    devices,
+    selectedDevice,
     login,
     logout,
     play,
     togglePlay,
-    nextTrack,
-    previousTrack,
     setVolume,
     searchTracks,
+    refreshDevices,
+    selectDevice,
     error,
+    listenTogether,
+    setListenTogether,
   } = useSpotify();
 
   const [showSearch, setShowSearch] = useState(false);
@@ -26,26 +30,14 @@ export default function SpotifyPlayer() {
   const [isSearching, setIsSearching] = useState(false);
   const [volume, setVolumeState] = useState(50);
   const [showVolume, setShowVolume] = useState(false);
+  const [showDevices, setShowDevices] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
-  
-  // Detect mobile devices - Spotify Web Playback SDK doesn't work on mobile browsers
-  const [isMobile, setIsMobile] = useState(false);
-  
-  useEffect(() => {
-    const checkMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
-    setIsMobile(checkMobile);
-  }, []);
 
   useEffect(() => {
     if (error) {
       console.error('Spotify error:', error);
     }
   }, [error]);
-  
-  // Don't render Spotify player on mobile devices
-  if (isMobile) {
-    return null;
-  }
 
   const handleSearch = async () => {
     if (!searchQuery.trim()) return;
@@ -60,7 +52,7 @@ export default function SpotifyPlayer() {
   };
 
   const handlePlayTrack = async (track: SpotifyTrack) => {
-    await play(`spotify:track:${track.id}`);
+    await play(track.uri, true); // sync=true for Listen Together
     setShowSearch(false);
     setSearchQuery('');
     setSearchResults([]);
@@ -68,7 +60,7 @@ export default function SpotifyPlayer() {
 
   const handleVolumeChange = (newVolume: number) => {
     setVolumeState(newVolume);
-    setVolume(newVolume / 100);
+    setVolume(newVolume); // Now takes 0-100 directly
   };
 
   const formatTime = (ms: number) => {
@@ -76,6 +68,10 @@ export default function SpotifyPlayer() {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleDeviceRefresh = async () => {
+    await refreshDevices();
   };
 
   if (!isAuthenticated) {
@@ -90,7 +86,9 @@ export default function SpotifyPlayer() {
             </div>
             <div>
               <p className="text-white font-semibold">Connect Spotify</p>
-              <p className="text-gray-400 text-xs">Play music during your call</p>
+              <p className="text-gray-400 text-xs">
+                Control your Spotify from anywhere
+              </p>
             </div>
           </div>
           <button
@@ -109,7 +107,44 @@ export default function SpotifyPlayer() {
       <div className="bg-black/60 backdrop-blur-lg rounded-lg p-4 border border-green-500/30">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 border-4 border-green-600 border-t-transparent rounded-full animate-spin"></div>
-          <p className="text-white">Connecting to Spotify...</p>
+          <div className="flex-1">
+            <p className="text-white">Connecting to Spotify...</p>
+            {error && (
+              <p className="text-red-400 text-xs mt-1">{error}</p>
+            )}
+          </div>
+        </div>
+        <div className="mt-3 text-xs text-gray-400">
+          <p>💡 If this takes too long:</p>
+          <p className="ml-2">• Ensure you have Spotify Premium</p>
+          <p className="ml-2">• Try refreshing the page</p>
+          <p className="ml-2">• Check browser console for errors</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show device selector if no devices available
+  if (devices.length === 0) {
+    return (
+      <div className="bg-black/60 backdrop-blur-lg rounded-lg p-4 border border-green-500/30">
+        <div className="text-center">
+          <div className="w-12 h-12 bg-green-600 rounded-full flex items-center justify-center mx-auto mb-3">
+            <svg className="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
+            </svg>
+          </div>
+          <p className="text-white font-semibold mb-2">Open Spotify</p>
+          <p className="text-gray-400 text-sm mb-3">
+            Open Spotify on any device (phone, laptop, speaker) and start playing a song
+          </p>
+          <button
+            onClick={handleDeviceRefresh}
+            className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm transition"
+          >
+            🔄 Check for Devices
+          </button>
+          {error && <p className="text-red-400 text-xs mt-2">{error}</p>}
         </div>
       </div>
     );
@@ -143,8 +178,13 @@ export default function SpotifyPlayer() {
               )}
             </div>
             <div className="flex items-center gap-2">
+              {listenTogether && (
+                <div className="px-2 py-1 bg-green-600 rounded text-xs text-white">
+                  👥 Together
+                </div>
+              )}
               <button
-                onClick={togglePlay}
+                onClick={() => togglePlay(true)}
                 className="w-8 h-8 bg-white hover:bg-gray-200 rounded-full flex items-center justify-center transition"
                 aria-label={playbackState?.isPlaying ? 'Pause' : 'Play'}
               >
@@ -183,9 +223,18 @@ export default function SpotifyPlayer() {
                   <path d="M12 0C5.4 0 0 5.4 0 12s5.4 12 12 12 12-5.4 12-12S18.66 0 12 0zm5.521 17.34c-.24.359-.66.48-1.021.24-2.82-1.74-6.36-2.101-10.561-1.141-.418.122-.779-.179-.899-.539-.12-.421.18-.78.54-.9 4.56-1.021 8.52-.6 11.64 1.32.42.18.479.659.301 1.02zm1.44-3.3c-.301.42-.841.6-1.262.3-3.239-1.98-8.159-2.58-11.939-1.38-.479.12-1.02-.12-1.14-.6-.12-.48.12-1.021.6-1.141C9.6 9.9 15 10.561 18.72 12.84c.361.181.54.78.241 1.2zm.12-3.36C15.24 8.4 8.82 8.16 5.16 9.301c-.6.179-1.2-.181-1.38-.721-.18-.601.18-1.2.72-1.381 4.26-1.26 11.28-1.02 15.721 1.621.539.3.719 1.02.419 1.56-.299.421-1.02.599-1.559.3z"/>
                 </svg>
               </div>
-              <span className="text-white font-semibold">Spotify</span>
+              <span className="text-white font-semibold">Spotify Remote</span>
             </div>
             <div className="flex items-center gap-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={listenTogether}
+                  onChange={(e) => setListenTogether(e.target.checked)}
+                  className="w-4 h-4 rounded border-green-500 bg-black text-green-600 focus:ring-green-500"
+                />
+                <span className="text-xs text-white">Listen Together</span>
+              </label>
               <button
                 onClick={() => setShowSearch(!showSearch)}
                 className="text-gray-400 hover:text-white transition"
@@ -193,6 +242,16 @@ export default function SpotifyPlayer() {
               >
                 <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setShowDevices(!showDevices)}
+                className="text-gray-400 hover:text-white transition"
+                aria-label="Devices"
+                title="Select Device"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
                 </svg>
               </button>
               <button
@@ -212,6 +271,51 @@ export default function SpotifyPlayer() {
               </button>
             </div>
           </div>
+
+          {/* Device Selector (For All Users) */}
+          {showDevices && (
+            <div className="mb-4 p-3 bg-black/40 rounded-lg border border-green-500/30">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-white text-sm font-semibold">Control Device</p>
+                <button
+                  onClick={handleDeviceRefresh}
+                  className="text-xs text-green-400 hover:text-green-300"
+                >
+                  🔄 Refresh
+                </button>
+              </div>
+              <p className="text-gray-400 text-xs mb-3">
+                Both users will control the same device for perfect sync!
+              </p>
+              <div className="space-y-2">
+                {devices.map((device) => (
+                  <button
+                    key={device.id}
+                    onClick={() => {
+                      selectDevice(device.id);
+                      setShowDevices(false);
+                    }}
+                    className={`w-full text-left p-2 rounded transition ${
+                      selectedDevice === device.id
+                        ? 'bg-green-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-medium">{device.name}</span>
+                      {device.is_active && <span className="text-xs">▶️ Playing</span>}
+                    </div>
+                    <span className="text-xs opacity-75 capitalize">{device.type}</span>
+                  </button>
+                ))}
+                {devices.length === 0 && (
+                  <p className="text-gray-400 text-sm text-center py-2">
+                    No devices found. Open Spotify and play a song.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Search */}
           {showSearch && (
@@ -295,17 +399,7 @@ export default function SpotifyPlayer() {
           {/* Controls */}
           <div className="flex items-center justify-center gap-4 mb-4">
             <button
-              onClick={previousTrack}
-              className="text-gray-400 hover:text-white transition"
-              aria-label="Previous track"
-            >
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M6 6h2v12H6V6zm3.5 6l8.5 6V6l-8.5 6z"/>
-              </svg>
-            </button>
-            
-            <button
-              onClick={togglePlay}
+              onClick={() => togglePlay(true)}
               className="w-12 h-12 bg-white hover:bg-gray-200 rounded-full flex items-center justify-center transition"
               aria-label={playbackState?.isPlaying ? 'Pause' : 'Play'}
             >
@@ -318,16 +412,6 @@ export default function SpotifyPlayer() {
                   <path d="M8 5v14l11-7z"/>
                 </svg>
               )}
-            </button>
-
-            <button
-              onClick={nextTrack}
-              className="text-gray-400 hover:text-white transition"
-              aria-label="Next track"
-            >
-              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M16 18h2V6h-2v12zM6 18l8.5-6L6 6v12z"/>
-              </svg>
             </button>
           </div>
 

@@ -3,6 +3,7 @@
 import React, { useEffect, useState, useRef, Component, ErrorInfo, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import SpotifyPlayer from "@/components/SpotifyPlayer";
+import { useSpotify } from "@/contexts/SpotifyContext";
 
 // Error Boundary to catch React errors on mobile
 class VideoErrorBoundary extends Component<
@@ -2072,7 +2073,7 @@ function CustomVideoUI({
 
       {/* Spotify Player - Positioned in bottom-left corner */}
       <div className="absolute bottom-24 md:bottom-28 left-4 z-20 w-80 max-w-[calc(100%-2rem)]">
-        <SpotifyPlayer />
+        <SpotifyPlayerWithSync />
       </div>
 
       {/* Controls - Overlayed at bottom with iPhone safe area */}
@@ -2354,6 +2355,54 @@ function CustomVideoUI({
       )}
     </div>
   );
+}
+
+// Spotify Player with Sync Support
+function SpotifyPlayerWithSync() {
+  const { play, onSyncMessage, offSyncMessage, listenTogether } = useSpotify();
+  const room = useRoomContext();
+  
+  React.useEffect(() => {
+    if (!listenTogether || !room) return;
+    
+    // Listen for sync messages from data channel
+    const handleSyncMessage = (message: any) => {
+      try {
+        const data = JSON.parse(new TextDecoder().decode(message.payload));
+        if (data.type === 'spotify_sync') {
+          console.log('🎵 Received Spotify sync:', data.action);
+          
+          if (data.action === 'play_track' && data.uri) {
+            play(data.uri, false);
+          }
+        }
+      } catch (error) {
+        console.error('Error handling sync message:', error);
+      }
+    };
+    
+    room.on('dataReceived', handleSyncMessage);
+    
+    const sendSync = async (syncData: any) => {
+      if (room && room.state === 'connected') {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(JSON.stringify({
+          type: 'spotify_sync',
+          ...syncData,
+        }));
+        await room.localParticipant.publishData(data, { reliable: true });
+      }
+    };
+    
+    onSyncMessage(sendSync);
+    
+    return () => {
+      room.off('dataReceived', handleSyncMessage);
+      offSyncMessage(sendSync);
+    };
+  }, [listenTogether, room, play, onSyncMessage, offSyncMessage]);
+  
+  return <SpotifyPlayer />;
 }
 
 // Wrapped export with Error Boundary
