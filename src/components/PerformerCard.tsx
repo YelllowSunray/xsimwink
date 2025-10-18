@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { PerformerService, type Performer } from "@/services/PerformerService";
+import { getCategoriesByIds } from "@/constants/categories";
 
 interface PerformerCardProps {
   performer: Performer;
@@ -212,10 +213,6 @@ export default function PerformerCard({
 
         {/* Hover overlay - Hidden on mobile to prevent interference */}
         <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition flex flex-col items-center justify-end pb-6 px-4 hidden md:flex">
-          <div className="bg-black/60 backdrop-blur-sm rounded-lg px-4 py-2 mb-3 w-full text-center">
-            <p className="text-xs text-gray-300 mb-1">Both pay to connect</p>
-            <p className="text-pink-400 font-bold text-lg">${performer.connectionFee.toFixed(2)} each</p>
-          </div>
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -274,6 +271,25 @@ export default function PerformerCard({
           </p>
         )}
 
+        {/* Categories */}
+        {performer.categories && performer.categories.length > 0 && (
+          <div className="flex flex-wrap gap-1 mb-2">
+            {getCategoriesByIds(performer.categories).slice(0, 2).map((category) => (
+              <span
+                key={category.id}
+                className="bg-gradient-to-r from-purple-500/20 to-pink-500/20 text-purple-300 text-xs px-2 py-1 rounded-full border border-purple-500/30"
+              >
+                {category.icon} {category.name}
+              </span>
+            ))}
+            {performer.categories.length > 2 && (
+              <span className="text-gray-400 text-xs px-2 py-1">
+                +{performer.categories.length - 2} more
+              </span>
+            )}
+          </div>
+        )}
+
         {/* Tags */}
         <div className="flex flex-wrap gap-1 mb-2">
           {(performer.tags || []).slice(0, 3).map((tag, index) => (
@@ -294,7 +310,7 @@ export default function PerformerCard({
         {/* Quick stats */}
         <div className="flex justify-between text-xs text-gray-400 pt-2 border-t border-gray-700">
           <span>💖 {performer.stats?.favoriteCount ?? 0} favorites</span>
-          <span className="text-pink-400 font-semibold">${performer.connectionFee.toFixed(2)}</span>
+          <span className="text-pink-400 font-semibold">Free to connect</span>
         </div>
       </div>
     </div>

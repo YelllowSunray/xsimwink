@@ -221,14 +221,14 @@ function VideoChatLiveKitInner({
 
         const data = await response.json();
         if (!cancelled) {
-          setToken(data.token);
-          console.log("✅ LiveKit token received");
+        setToken(data.token);
+        console.log("✅ LiveKit token received");
         }
       } catch (error) {
         if (!cancelled) {
-          console.error("❌ LiveKit token error:", error);
-          alert("Failed to join video call. Please check your LiveKit credentials.");
-          onEndCall();
+        console.error("❌ LiveKit token error:", error);
+        alert("Failed to join video call. Please check your LiveKit credentials.");
+        onEndCall();
         }
       }
     };
@@ -418,15 +418,15 @@ function CustomVideoUI({
       (t) => t.participant?.identity === participant.identity && t.source === Track.Source.Microphone
     ) as TrackReference | undefined;
 
-    return (
+  return (
       <div key={participant.identity} className="relative bg-gray-900 rounded-lg overflow-hidden flex items-center justify-center aspect-video">
         {videoTrack ? (
           <>
-            <VideoTrack
+          <VideoTrack
               trackRef={videoTrack}
-              style={{ 
-                width: "100%", 
-                height: "100%", 
+            style={{ 
+              width: "100%", 
+              height: "100%", 
                 objectFit: "contain",
                 transform: isSelf ? "scaleX(-1)" : undefined
               }}
@@ -479,30 +479,30 @@ function CustomVideoUI({
                 </div>
               )}
             </>
-          ) : (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/80">
-              <div className="text-center">
-                <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-pink-500 mx-auto mb-4"></div>
-                <p className="text-white text-lg">Waiting for {partnerName}...</p>
-              </div>
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center bg-black/80">
+            <div className="text-center">
+              <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-pink-500 mx-auto mb-4"></div>
+              <p className="text-white text-lg">Waiting for {partnerName}...</p>
             </div>
-          )}
-        </div>
-      )}
+          </div>
+        )}
+          </div>
+        )}
 
-      {/* Top Bar */}
+        {/* Top Bar */}
       <div className="absolute top-0 left-0 right-0 p-3 md:p-4 bg-gradient-to-b from-black/80 to-transparent z-20">
-        <div className="flex items-center justify-between">
-          <div>
+          <div className="flex items-center justify-between">
+            <div>
             <h2 className="text-white text-xl font-semibold">
               {isGroupCall ? `Group Call (${totalPeople} people)` : partnerName}
             </h2>
-            <div className="flex items-center gap-2 mt-1">
-              <div
-                className={`w-2 h-2 rounded-full ${
-                  connectionStatus === "connected" ? "bg-green-500" : "bg-yellow-500"
-                }`}
-              ></div>
+              <div className="flex items-center gap-2 mt-1">
+                <div
+                  className={`w-2 h-2 rounded-full ${
+                    connectionStatus === "connected" ? "bg-green-500" : "bg-yellow-500"
+                  }`}
+                ></div>
               <span className="text-gray-300 text-sm capitalize">
                 {connectionStatus}
                 {isGroupCall && ` • ${remoteParticipants.length} others`}

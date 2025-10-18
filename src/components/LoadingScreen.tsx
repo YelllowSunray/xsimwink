@@ -13,7 +13,7 @@ export default function LoadingScreen({ message = "Loading..." }: LoadingScreenP
         {/* Logo */}
         <div className="mb-8">
           <h1 className="text-6xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400 mb-2">
-            XOXO
+            Thumb
           </h1>
           <p className="text-gray-300 text-sm">Connecting hearts & minds</p>
         </div>

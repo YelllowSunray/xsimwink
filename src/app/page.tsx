@@ -16,16 +16,18 @@ import { PerformerService, type Performer } from "@/services/PerformerService";
 import { CallService } from "@/services/CallService";
 import IncomingCallToast from "@/components/IncomingCallToast";
 import { PresenceService } from "@/services/PresenceService";
+import { CATEGORIES } from "@/constants/categories";
 
 // (Removed local mockPerformers; live data comes from Firestore)
 
 export default function Home() {
-  const { user, userProfile, loading, logout, updateWallet, addFavorite } = useAuth();
+  const { user, userProfile, loading, logout, addFavorite } = useAuth();
   const router = useRouter();
   const { toasts, removeToast, success, error, info } = useToast();
   const { isUserOnline } = useOnlineStatus();
   const [activeCall, setActiveCall] = useState<{ id: string; name: string; fee: number } | null>(null);
   const [filterGender, setFilterGender] = useState<string>("all");
+  const [filterCategory, setFilterCategory] = useState<string>("all");
   const [showOnlineOnly, setShowOnlineOnly] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [performers, setPerformers] = useState<Performer[]>([]);
@@ -67,10 +69,11 @@ export default function Home() {
       
       setLoadingPerformers(true);
       try {
-        console.log("🔍 Loading performers with filters:", { filterGender, showOnlineOnly, searchQuery });
+        console.log("🔍 Loading performers with filters:", { filterGender, filterCategory, showOnlineOnly, searchQuery });
         
         const filters = {
           gender: filterGender,
+          categories: filterCategory && filterCategory !== 'all' ? [filterCategory] : undefined,
           onlineOnly: showOnlineOnly,
           searchQuery: searchQuery || undefined,
         };
@@ -93,7 +96,7 @@ export default function Home() {
     };
 
     loadPerformers();
-  }, [user, filterGender, showOnlineOnly, searchQuery]);
+  }, [user, filterGender, filterCategory, showOnlineOnly, searchQuery]);
 
   // Listen for incoming calls for this user
   useEffect(() => {
@@ -235,8 +238,6 @@ export default function Home() {
     if (!performer) return;
 
     try {
-      // Deduct connection fee
-      await updateWallet(performer.connectionFee, 'spend');
       // Create call invite for the callee
       await CallService.createCall({
         callerId: user!.uid,
@@ -248,7 +249,7 @@ export default function Home() {
       setActiveCall({ 
         id: performer.id, 
         name: performer.displayName,
-        fee: performer.connectionFee 
+        fee: 0 
       });
 
       setConnectionModal({ isOpen: false });
@@ -355,18 +356,8 @@ export default function Home() {
     }
 
     try {
-      // Calculate total connection fee
+      // Get selected performers
       const selectedPerformersList = performers.filter(p => selectedPerformers.has(p.id));
-      const totalFee = selectedPerformersList.reduce((sum, p) => sum + p.connectionFee, 0);
-
-      // Check if user has enough balance
-      if (userProfile && userProfile.wallet.balance < totalFee) {
-        error("Insufficient balance", `You need $${totalFee.toFixed(2)} to start this group call`);
-        return;
-      }
-
-      // Deduct connection fee
-      await updateWallet(totalFee, 'spend');
 
       // Create group call with all participants
       const participants = [
@@ -385,7 +376,7 @@ export default function Home() {
       setActiveCall({
         id: roomId, // Use roomId as the "partnerId" for group calls
         name: `Group Call (${totalParticipants} people)`,
-        fee: totalFee,
+        fee: 0,
       });
 
       setSelectionMode(false);
@@ -440,7 +431,7 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4 md:gap-8">
               <h1 className="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">
-                XOXO
+                Thumb
               </h1>
               
               {/* Desktop Navigation */}
@@ -543,11 +534,6 @@ export default function Home() {
                 {loadingPerformers ? 'Loading...' : `${filteredPerformers.filter(p => p.isOnline).length} people are live right now`}
               </p>
             </div>
-            <div className="bg-black/30 rounded-lg px-4 md:px-6 py-2 md:py-3 text-center w-full md:w-auto">
-              <p className="text-pink-300 text-xs md:text-sm mb-1">Your Balance</p>
-              <p className="text-white text-xl md:text-2xl font-bold">${userProfile.wallet.balance.toFixed(2)}</p>
-              <a href="/earnings" className="text-pink-400 text-xs hover:text-pink-300">Add funds</a>
-            </div>
           </div>
         </div>
 
@@ -569,6 +555,23 @@ export default function Home() {
                 <option value="female">Female</option>
                 <option value="male">Male</option>
                 <option value="non-binary">Non-binary</option>
+              </select>
+            </div>
+
+            {/* Category Filter */}
+            <div className="flex items-center gap-2 flex-1 sm:flex-initial">
+              <label className="text-white text-sm font-medium whitespace-nowrap">Category:</label>
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="flex-1 sm:flex-initial bg-black/40 backdrop-blur-sm border border-pink-500/30 rounded-lg px-3 md:px-4 py-2 md:py-2.5 text-white text-sm md:text-base focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none min-h-[44px]"
+              >
+                <option value="all">All Categories</option>
+                {CATEGORIES.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.icon} {category.name}
+                  </option>
+                ))}
               </select>
             </div>
 

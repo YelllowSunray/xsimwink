@@ -51,7 +51,7 @@ export default function RecordingsPage() {
             <div className="flex items-center gap-8">
               <a href="/">
                 <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">
-                  XOXO
+                  Thumb
                 </h1>
               </a>
               <nav className="hidden md:flex gap-6">

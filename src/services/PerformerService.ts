@@ -13,6 +13,7 @@ export interface Performer {
   rating?: number;
   totalRatings?: number;
   tags: string[];
+  categories: string[]; // NEW: Category IDs this performer offers
   connectionFee: number;
   profilePicture?: string;
   bio?: string;
@@ -45,6 +46,7 @@ export interface MatchFilters {
   maxAge?: number;
   maxConnectionFee?: number;
   tags?: string[];
+  categories?: string[]; // NEW: Filter by category IDs
   onlineOnly?: boolean;
   minRating?: number;
   location?: string;
@@ -75,6 +77,7 @@ export class PerformerService {
       rating: data?.rating ?? 0,
       totalRatings: data?.totalRatings ?? 0,
       tags: Array.isArray(data?.tags) ? data.tags : [],
+      categories: Array.isArray(data?.categories) ? data.categories : [],
       connectionFee: data?.connectionFee ?? 2.99,
       profilePicture: data?.profilePicture ?? undefined,
       bio: data?.bio ?? undefined,
@@ -335,6 +338,14 @@ export class PerformerService {
       // Age filter
       if (filters.minAge && performer.age < filters.minAge) return false;
       if (filters.maxAge && performer.age > filters.maxAge) return false;
+
+      // Categories filter (NEW)
+      if (filters.categories && filters.categories.length > 0) {
+        const hasMatchingCategory = filters.categories.some(categoryId =>
+          performer.categories.includes(categoryId)
+        );
+        if (!hasMatchingCategory) return false;
+      }
 
       // Tags filter
       if (filters.tags && filters.tags.length > 0) {

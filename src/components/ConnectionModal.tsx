@@ -7,8 +7,8 @@ interface ConnectionModalProps {
   onClose: () => void;
   onConfirm: () => void;
   partnerName: string;
-  connectionFee: number;
-  userBalance: number;
+  connectionFee?: number; // Optional for backward compatibility
+  userBalance?: number; // Optional for backward compatibility
 }
 
 export default function ConnectionModal({
@@ -16,8 +16,6 @@ export default function ConnectionModal({
   onClose,
   onConfirm,
   partnerName,
-  connectionFee,
-  userBalance,
 }: ConnectionModalProps) {
   const [isConnecting, setIsConnecting] = useState(false);
 
@@ -29,8 +27,6 @@ export default function ConnectionModal({
     setIsConnecting(false);
   };
 
-  const hasInsufficientFunds = userBalance < connectionFee;
-
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
       <div className="bg-gradient-to-br from-black/90 to-gray-900/90 border border-pink-500/30 rounded-2xl max-w-md w-full p-6">
@@ -41,39 +37,8 @@ export default function ConnectionModal({
             </svg>
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Connect with {partnerName}?</h2>
-          <p className="text-gray-300 text-sm">Both of you will pay to connect</p>
+          <p className="text-gray-300 text-sm">Start a free video chat session</p>
         </div>
-
-        {/* Payment Details */}
-        <div className="bg-black/40 rounded-lg p-4 mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-gray-400">Your payment:</span>
-            <span className="text-pink-400 font-bold text-lg">${connectionFee.toFixed(2)}</span>
-          </div>
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-gray-400">{partnerName}'s payment:</span>
-            <span className="text-pink-400 font-bold text-lg">${connectionFee.toFixed(2)}</span>
-          </div>
-          <div className="border-t border-gray-600 pt-3">
-            <div className="flex items-center justify-between">
-              <span className="text-gray-400">Your balance:</span>
-              <span className={`font-bold ${hasInsufficientFunds ? 'text-red-400' : 'text-green-400'}`}>
-                ${userBalance.toFixed(2)}
-              </span>
-            </div>
-          </div>
-        </div>
-
-        {hasInsufficientFunds && (
-          <div className="bg-red-500/20 border border-red-500 text-red-200 p-3 rounded-lg mb-4 text-sm">
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
-              </svg>
-              <span>Insufficient balance. Please add funds to continue.</span>
-            </div>
-          </div>
-        )}
 
         {/* Benefits */}
         <div className="mb-6">
@@ -115,22 +80,13 @@ export default function ConnectionModal({
           >
             Cancel
           </button>
-          {hasInsufficientFunds ? (
-            <button
-              onClick={() => window.location.href = '/earnings'}
-              className="flex-1 bg-green-600 text-white py-3 rounded-lg hover:bg-green-700 transition font-semibold"
-            >
-              Add Funds
-            </button>
-          ) : (
-            <button
-              onClick={handleConfirm}
-              disabled={isConnecting}
-              className="flex-1 bg-gradient-to-r from-pink-600 to-purple-600 text-white py-3 rounded-lg hover:from-pink-700 hover:to-purple-700 transition font-semibold disabled:opacity-50"
-            >
-              {isConnecting ? "Connecting..." : "Connect Now"}
-            </button>
-          )}
+          <button
+            onClick={handleConfirm}
+            disabled={isConnecting}
+            className="flex-1 bg-gradient-to-r from-pink-600 to-purple-600 text-white py-3 rounded-lg hover:from-pink-700 hover:to-purple-700 transition font-semibold disabled:opacity-50"
+          >
+            {isConnecting ? "Connecting..." : "Connect Now"}
+          </button>
         </div>
       </div>
     </div>
