@@ -41,12 +41,11 @@ export class SpotifyService {
    */
   async initialize(accessToken: string): Promise<boolean> {
     this.accessToken = accessToken;
-    console.log('🎵 Initializing Spotify Connect API - Universal Remote Control Mode');
+    console.log('🎵 Spotify Connect API - Universal Remote Control Mode');
     
     // Start polling playback state for real-time updates
     this.startStatePolling();
     
-    this.emit('ready', 'connect-api');
     return true;
   }
 

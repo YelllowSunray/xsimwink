@@ -84,18 +84,8 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Setup player event listeners
+  // Setup service event listeners
   useEffect(() => {
-    const handleReady = () => {
-      setIsPlayerReady(true);
-      setError(null);
-      refreshDevices(); // Load available devices
-    };
-
-    const handleNotReady = () => {
-      setIsPlayerReady(false);
-    };
-
     const handleStateChange = (state: SpotifyPlaybackState) => {
       setPlaybackState(state);
     };
@@ -112,15 +102,11 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
       }
     };
 
-    spotifyService.on('ready', handleReady);
-    spotifyService.on('not_ready', handleNotReady);
     spotifyService.on('state_changed', handleStateChange);
     spotifyService.on('error', handleError);
     spotifyService.on('auth_error', handleAuthError);
 
     return () => {
-      spotifyService.off('ready', handleReady);
-      spotifyService.off('not_ready', handleNotReady);
       spotifyService.off('state_changed', handleStateChange);
       spotifyService.off('error', handleError);
       spotifyService.off('auth_error', handleAuthError);
@@ -129,12 +115,19 @@ export function SpotifyProvider({ children }: { children: ReactNode }) {
 
   const initializePlayer = async (token: string) => {
     try {
+      console.log('🎵 Initializing Spotify Connect API...');
       await spotifyService.initialize(token);
-      // Automatically load available devices
-      await refreshDevices();
+      setIsPlayerReady(true); // Connect API is ready immediately with token
+      console.log('✅ Spotify Connect API ready!');
+      
+      // Load available devices in background
+      refreshDevices().catch(err => {
+        console.warn('Failed to load devices initially:', err);
+      });
     } catch (err) {
       console.error('Failed to initialize Spotify:', err);
       setError('Failed to initialize Spotify');
+      setIsPlayerReady(false);
     }
   };
 
