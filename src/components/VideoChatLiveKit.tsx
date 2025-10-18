@@ -1186,6 +1186,9 @@ function VideoChatLiveKitInner({
           processedAudioTrack={processedAudioTrack}
           stopVideoEffectProcessing={stopVideoEffectProcessing}
           setProcessedVideoTrack={setProcessedVideoTrack}
+          setProcessedAudioTrack={setProcessedAudioTrack}
+          currentAudioEffectNodesRef={currentAudioEffectNodesRef}
+          audioEffectContextRef={audioEffectContextRef}
         />
       </LiveKitRoom>
     </div>
@@ -1216,6 +1219,9 @@ function CustomVideoUI({
   processedAudioTrack,
   stopVideoEffectProcessing,
   setProcessedVideoTrack,
+  setProcessedAudioTrack,
+  currentAudioEffectNodesRef,
+  audioEffectContextRef,
 }: {
   partnerName: string;
   callDuration: number;
@@ -1239,6 +1245,9 @@ function CustomVideoUI({
   processedAudioTrack: MediaStreamTrack | null;
   stopVideoEffectProcessing: () => void;
   setProcessedVideoTrack: (track: MediaStreamTrack | null) => void;
+  setProcessedAudioTrack: (track: MediaStreamTrack | null) => void;
+  currentAudioEffectNodesRef: React.MutableRefObject<AudioNode[]>;
+  audioEffectContextRef: React.MutableRefObject<AudioContext | null>;
 }) {
   const participants = useParticipants();
   const tracks = useTracks([
