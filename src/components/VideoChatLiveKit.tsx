@@ -1094,13 +1094,17 @@ function CustomVideoUI({
       if (!hasEffects) return;
       
       try {
-        // Get current published tracks
-        const currentVideoTrack = room.localParticipant.getTrack('camera')?.track;
-        const currentAudioTrack = room.localParticipant.getTrack('microphone')?.track;
+        // Get current published video track
+        const videoPublications = Array.from(room.localParticipant.videoTracks.values());
+        const currentVideoPublication = videoPublications[0];
+        
+        // Get current published audio track
+        const audioPublications = Array.from(room.localParticipant.audioTracks.values());
+        const currentAudioPublication = audioPublications[0];
         
         // Replace video track if we have a processed one
-        if (processedVideoTrack && currentVideoTrack) {
-          await room.localParticipant.unpublishTrack(currentVideoTrack);
+        if (processedVideoTrack && currentVideoPublication) {
+          await room.localParticipant.unpublishTrack(currentVideoPublication.track);
           await room.localParticipant.publishTrack(processedVideoTrack, {
             name: 'camera',
             simulcast: true,
@@ -1109,8 +1113,8 @@ function CustomVideoUI({
         }
         
         // Replace audio track if we have a processed one
-        if (processedAudioTrack && currentAudioTrack) {
-          await room.localParticipant.unpublishTrack(currentAudioTrack);
+        if (processedAudioTrack && currentAudioPublication) {
+          await room.localParticipant.unpublishTrack(currentAudioPublication.track);
           await room.localParticipant.publishTrack(processedAudioTrack, {
             name: 'microphone',
           });
