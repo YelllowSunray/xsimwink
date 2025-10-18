@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState, useRef, Component, ErrorInfo, ReactNode } from "react";
 import { useAuth } from "@/contexts/AuthContext";
+import SpotifyPlayer from "@/components/SpotifyPlayer";
 
 // Error Boundary to catch React errors on mobile
 class VideoErrorBoundary extends Component<
@@ -116,10 +117,10 @@ function VideoChatLiveKitInner({
   
   const { user, addSessionHistory, addRecording } = useAuth();
 
-  // Canvas Composite Recording - Captures all participants
+  // Clean Multi-Participant Recording - Direct from LiveKit tracks
   const startRecording = async () => {
     try {
-      console.log('🎬 Starting canvas composite recording...');
+      console.log('🎬 Starting recording...');
       
       // Wait for all videos to be ready (important for mobile)
       const waitForVideos = async (maxWaitMs: number = 5000): Promise<HTMLVideoElement[]> => {
@@ -2067,6 +2068,13 @@ function CustomVideoUI({
             </div>
             <div className="text-white text-lg font-mono">{formatDuration(callDuration)}</div>
         </div>
+      </div>
+
+      {/* Spotify Player - Positioned in top-right corner */}
+      <div className={`absolute right-4 z-20 w-80 max-w-[calc(100%-2rem)] ${
+        isRecording || recordingParticipants.size > 0 ? 'top-24' : 'top-20'
+      }`}>
+        <SpotifyPlayer />
       </div>
 
       {/* Controls - Overlayed at bottom with iPhone safe area */}
