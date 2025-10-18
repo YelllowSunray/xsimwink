@@ -744,7 +744,8 @@ function VideoChatLiveKitInner({
     }
 
     currentAudioEffectNodesRef.current = newNodes;
-    setAudioEffect(effectType);
+    setAudioEffect(effectType); // Update state
+    console.log(`✅ Audio effect ${effectType} applied successfully`);
   };
 
   // Get CSS filter for visual effects
@@ -1025,8 +1026,8 @@ function VideoChatLiveKitInner({
   return (
     <div className="fixed inset-0 bg-black z-50">
       <LiveKitRoom
-        video={true}
-        audio={true}
+        video={false}
+        audio={false}
         token={token}
         serverUrl={serverUrl}
         connect={true}
@@ -1112,39 +1113,127 @@ function CustomVideoUI({
   ]);
   const room = useRoomContext();
   
-  // Replace video track with processed one when visual effects are active
+  // Handler to apply audio effects (ensures it's called properly)
+  const handleAudioEffectChange = (effect: typeof audioEffect) => {
+    console.log(`🎵 Changing audio effect to: ${effect}`);
+    setAudioEffect(effect); // This calls applyAudioEffect from parent
+  };
+  
+  // Handler to apply visual effects
+  const handleVisualEffectChange = (effect: typeof visualEffect) => {
+    console.log(`🎨 Changing visual effect to: ${effect}`);
+    setVisualEffect(effect); // This updates state which triggers useEffect
+  };
+  
+  // Publish camera and microphone when room connects
   React.useEffect(() => {
-    const replaceVideoTrack = async () => {
+    const publishMediaTracks = async () => {
       if (!room || room.state !== 'connected') return;
-      if (!processedVideoTrack) return;
       
       try {
-        console.log('🎨 Replacing video track with effects...');
+        // Check if already published
+        const existingVideo = room.localParticipant.getTrackPublication(Track.Source.Camera);
+        const existingAudio = room.localParticipant.getTrackPublication(Track.Source.Microphone);
         
-        // Get existing video publication
-        const existingTrack = room.localParticipant.getTrackPublication(Track.Source.Camera);
-        
-        if (existingTrack) {
-          // Unpublish existing camera track
-          await room.localParticipant.unpublishTrack(existingTrack.track!);
+        if (existingVideo && existingAudio) {
+          console.log('📹 Tracks already published');
+          return;
         }
         
-        // Publish the processed video track
-        await room.localParticipant.publishTrack(processedVideoTrack, {
+        console.log('📹 Publishing camera and microphone...');
+        
+        // Get raw camera and mic
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width: 1280, height: 720 },
+          audio: true
+        });
+        
+        // Publish video
+        const videoTrack = stream.getVideoTracks()[0];
+        await room.localParticipant.publishTrack(videoTrack, {
           source: Track.Source.Camera,
           simulcast: true,
         });
+        console.log('✅ Camera published');
         
-        console.log('✅ Video track replaced with effects');
+        // Publish audio
+        const audioTrack = stream.getAudioTracks()[0];
+        await room.localParticipant.publishTrack(audioTrack, {
+          source: Track.Source.Microphone,
+        });
+        console.log('✅ Microphone published');
+        
       } catch (error) {
-        console.error('Error replacing video track:', error);
+        console.error('Error publishing media tracks:', error);
+      }
+    };
+    
+    // Wait for room to be connected
+    if (room?.state === 'connected') {
+      publishMediaTracks();
+    } else if (room) {
+      room.once('connected', publishMediaTracks);
+    }
+    
+    return () => {
+      if (room) {
+        room.off('connected', publishMediaTracks);
+      }
+    };
+  }, [room]);
+  
+  // Replace video track based on visual effects
+  React.useEffect(() => {
+    const manageVideoTrack = async () => {
+      if (!room || room.state !== 'connected') return;
+      
+      try {
+        // Get existing video publication
+        const existingTrack = room.localParticipant.getTrackPublication(Track.Source.Camera);
+        
+        if (visualEffect !== 'none' && processedVideoTrack) {
+          // Apply effect: replace with processed track
+          console.log(`🎨 Applying ${visualEffect} effect to video...`);
+          
+          if (existingTrack && existingTrack.track) {
+            await room.localParticipant.unpublishTrack(existingTrack.track);
+            console.log('📹 Unpublished old video track');
+          }
+          
+          await room.localParticipant.publishTrack(processedVideoTrack, {
+            source: Track.Source.Camera,
+            simulcast: true,
+          });
+          console.log('✅ Video with effects published');
+          
+        } else if (visualEffect === 'none' && existingTrack && processedVideoTrack) {
+          // Remove effect: restore raw camera
+          console.log('🎨 Removing visual effect, restoring raw camera...');
+          
+          await room.localParticipant.unpublishTrack(existingTrack.track!);
+          
+          // Get fresh raw camera
+          const stream = await navigator.mediaDevices.getUserMedia({
+            video: { width: 1280, height: 720 }
+          });
+          
+          const videoTrack = stream.getVideoTracks()[0];
+          await room.localParticipant.publishTrack(videoTrack, {
+            source: Track.Source.Camera,
+            simulcast: true,
+          });
+          console.log('✅ Raw camera restored');
+        }
+        
+      } catch (error) {
+        console.error('Error managing video track:', error);
       }
     };
     
     // Delay to ensure room is ready
-    const timeoutId = setTimeout(replaceVideoTrack, 1500);
+    const timeoutId = setTimeout(manageVideoTrack, 2000);
     return () => clearTimeout(timeoutId);
-  }, [room, processedVideoTrack]);
+  }, [room, visualEffect, processedVideoTrack]);
   
   // Log audio effects (audio transmission would need similar implementation)
   React.useEffect(() => {
@@ -1533,7 +1622,7 @@ function CustomVideoUI({
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => setAudioEffect('none')}
+                    onClick={() => handleAudioEffectChange('none')}
                     className={`px-4 py-2 rounded-lg transition ${
                       audioEffect === 'none'
                         ? 'bg-purple-600 text-white'
@@ -1543,7 +1632,7 @@ function CustomVideoUI({
                     Normal
                   </button>
                   <button
-                    onClick={() => setAudioEffect('robot')}
+                    onClick={() => handleAudioEffectChange('robot')}
                     className={`px-4 py-2 rounded-lg transition ${
                       audioEffect === 'robot'
                         ? 'bg-purple-600 text-white'
@@ -1553,7 +1642,7 @@ function CustomVideoUI({
                     🤖 Robot
                   </button>
                   <button
-                    onClick={() => setAudioEffect('echo')}
+                    onClick={() => handleAudioEffectChange('echo')}
                     className={`px-4 py-2 rounded-lg transition ${
                       audioEffect === 'echo'
                         ? 'bg-purple-600 text-white'
@@ -1563,7 +1652,7 @@ function CustomVideoUI({
                     🔊 Echo
                   </button>
                   <button
-                    onClick={() => setAudioEffect('reverb')}
+                    onClick={() => handleAudioEffectChange('reverb')}
                     className={`px-4 py-2 rounded-lg transition ${
                       audioEffect === 'reverb'
                         ? 'bg-purple-600 text-white'
@@ -1573,7 +1662,7 @@ function CustomVideoUI({
                     🏛️ Reverb
                   </button>
                   <button
-                    onClick={() => setAudioEffect('deep')}
+                    onClick={() => handleAudioEffectChange('deep')}
                     className={`px-4 py-2 rounded-lg transition ${
                       audioEffect === 'deep'
                         ? 'bg-purple-600 text-white'
@@ -1583,7 +1672,7 @@ function CustomVideoUI({
                     🎙️ Deep
                   </button>
                   <button
-                    onClick={() => setAudioEffect('distortion')}
+                    onClick={() => handleAudioEffectChange('distortion')}
                     className={`px-4 py-2 rounded-lg transition ${
                       audioEffect === 'distortion'
                         ? 'bg-purple-600 text-white'
@@ -1593,7 +1682,7 @@ function CustomVideoUI({
                     🎸 Distortion
                   </button>
                   <button
-                    onClick={() => setAudioEffect('autotune')}
+                    onClick={() => handleAudioEffectChange('autotune')}
                     className={`px-4 py-2 rounded-lg transition ${
                       audioEffect === 'autotune'
                         ? 'bg-purple-600 text-white'
@@ -1612,7 +1701,7 @@ function CustomVideoUI({
                 </label>
                 <div className="grid grid-cols-2 gap-2">
                   <button
-                    onClick={() => setVisualEffect('none')}
+                    onClick={() => handleVisualEffectChange('none')}
                     className={`px-4 py-2 rounded-lg transition ${
                       visualEffect === 'none'
                         ? 'bg-purple-600 text-white'
@@ -1622,7 +1711,7 @@ function CustomVideoUI({
                     Normal
                   </button>
                   <button
-                    onClick={() => setVisualEffect('blur')}
+                    onClick={() => handleVisualEffectChange('blur')}
                     className={`px-4 py-2 rounded-lg transition ${
                       visualEffect === 'blur'
                         ? 'bg-purple-600 text-white'
@@ -1632,7 +1721,7 @@ function CustomVideoUI({
                     🌫️ Blur
                   </button>
                   <button
-                    onClick={() => setVisualEffect('sepia')}
+                    onClick={() => handleVisualEffectChange('sepia')}
                     className={`px-4 py-2 rounded-lg transition ${
                       visualEffect === 'sepia'
                         ? 'bg-purple-600 text-white'
@@ -1642,7 +1731,7 @@ function CustomVideoUI({
                     📷 Sepia
                   </button>
                   <button
-                    onClick={() => setVisualEffect('grayscale')}
+                    onClick={() => handleVisualEffectChange('grayscale')}
                     className={`px-4 py-2 rounded-lg transition ${
                       visualEffect === 'grayscale'
                         ? 'bg-purple-600 text-white'
@@ -1652,7 +1741,7 @@ function CustomVideoUI({
                     ⚫ B&W
                   </button>
                   <button
-                    onClick={() => setVisualEffect('vintage')}
+                    onClick={() => handleVisualEffectChange('vintage')}
                     className={`px-4 py-2 rounded-lg transition ${
                       visualEffect === 'vintage'
                         ? 'bg-purple-600 text-white'
@@ -1662,7 +1751,7 @@ function CustomVideoUI({
                     📽️ Vintage
                   </button>
                   <button
-                    onClick={() => setVisualEffect('neon')}
+                    onClick={() => handleVisualEffectChange('neon')}
                     className={`px-4 py-2 rounded-lg transition ${
                       visualEffect === 'neon'
                         ? 'bg-purple-600 text-white'
