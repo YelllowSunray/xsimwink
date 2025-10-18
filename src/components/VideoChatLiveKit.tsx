@@ -745,7 +745,13 @@ function VideoChatLiveKitInner({
 
     currentAudioEffectNodesRef.current = newNodes;
     setAudioEffect(effectType); // Update state
-    console.log(`✅ Audio effect ${effectType} applied successfully`);
+    
+    // Get the processed audio track
+    if (audioDestinationRef.current) {
+      const processedAudioTrack = audioDestinationRef.current.stream.getAudioTracks()[0];
+      setProcessedAudioTrack(processedAudioTrack);
+      console.log(`✅ Audio effect ${effectType} applied - will be transmitted to others`);
+    }
   };
 
   // Get CSS filter for visual effects
@@ -888,7 +894,7 @@ function VideoChatLiveKitInner({
     if (rawVideoStreamRef.current && visualEffect !== 'none') {
       // Restart processing with new effect
       stopVideoEffectProcessing();
-      startVideoEffectProcessing(rawVideoStreamRef.current);
+      startVideoEffectProcessing(rawVideoStreamRef.current, visualEffect);
     }
   }, [visualEffect]);
 
@@ -1280,12 +1286,56 @@ function CustomVideoUI({
     return () => clearTimeout(timeoutId);
   }, [room, visualEffect, processedVideoTrack]);
   
-  // Log audio effects (audio transmission would need similar implementation)
+  // Replace audio track based on audio effects
   React.useEffect(() => {
-    if (audioEffect !== 'none') {
-      console.log(`🎵 Audio effect applied: ${audioEffect} (local only)`);
-    }
-  }, [audioEffect]);
+    const manageAudioTrack = async () => {
+      if (!room || room.state !== 'connected') return;
+      
+      try {
+        // Get existing audio publication
+        const existingAudioTrack = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+        
+        if (audioEffect !== 'none' && processedAudioTrack) {
+          // Apply effect: replace with processed track
+          console.log(`🎵 Applying ${audioEffect} effect to audio...`);
+          
+          if (existingAudioTrack && existingAudioTrack.track) {
+            await room.localParticipant.unpublishTrack(existingAudioTrack.track);
+            console.log('🎤 Unpublished old audio track');
+          }
+          
+          await room.localParticipant.publishTrack(processedAudioTrack, {
+            source: Track.Source.Microphone,
+          });
+          console.log('✅ Audio with effects published - others will hear it!');
+          
+        } else if (audioEffect === 'none' && existingAudioTrack && processedAudioTrack) {
+          // Remove effect: restore raw microphone
+          console.log('🎵 Removing audio effect, restoring raw microphone...');
+          
+          await room.localParticipant.unpublishTrack(existingAudioTrack.track!);
+          
+          // Get fresh raw microphone
+          const stream = await navigator.mediaDevices.getUserMedia({
+            audio: true
+          });
+          
+          const audioTrack = stream.getAudioTracks()[0];
+          await room.localParticipant.publishTrack(audioTrack, {
+            source: Track.Source.Microphone,
+          });
+          console.log('✅ Raw microphone restored');
+        }
+        
+      } catch (error) {
+        console.error('Error managing audio track:', error);
+      }
+    };
+    
+    // Delay to ensure room is ready
+    const timeoutId = setTimeout(manageAudioTrack, 2000);
+    return () => clearTimeout(timeoutId);
+  }, [room, audioEffect, processedAudioTrack]);
   
   // Track who is recording (participantIdentity -> participantName)
   const [recordingParticipants, setRecordingParticipants] = React.useState<Map<string, string>>(new Map());
@@ -1808,9 +1858,10 @@ function CustomVideoUI({
                 </div>
               </div>
 
-              <div className="text-gray-400 text-xs">
-                <p>✨ Effects are applied in real-time</p>
-                <p>🎥 Effects will be captured in recordings</p>
+              <div className="text-gray-400 text-xs space-y-1">
+                <p>✨ <strong>Effects applied in real-time</strong></p>
+                <p>🎥 Other participants see & hear your effects</p>
+                <p>📹 Effects captured in recordings</p>
               </div>
             </div>
             
