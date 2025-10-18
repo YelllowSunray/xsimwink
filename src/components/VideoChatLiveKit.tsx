@@ -482,30 +482,56 @@ function VideoChatLiveKitInner({
 
   // Apply audio effect in real-time
   const applyAudioEffect = async (effectType: typeof audioEffect) => {
+    console.log(`🎵 applyAudioEffect called with: ${effectType}`);
+    
     // Initialize audio context if not already done
     if (!audioEffectContextRef.current) {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-        const audioContext = new AudioContext();
+        console.log('🎵 Requesting microphone access for audio effects...');
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: false, // Disable to prevent conflicts with effects
+            noiseSuppression: false,
+            autoGainControl: false
+          }
+        });
+        console.log('✅ Microphone stream obtained');
+        
+        const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
         audioEffectContextRef.current = audioContext;
+        console.log(`✅ AudioContext created (state: ${audioContext.state})`);
+        
+        // Resume AudioContext if suspended (required on iOS/Safari)
+        if (audioContext.state === 'suspended') {
+          console.log('⏸️ AudioContext suspended, resuming...');
+          await audioContext.resume();
+          console.log(`✅ AudioContext resumed (state: ${audioContext.state})`);
+        }
         
         const audioSource = audioContext.createMediaStreamSource(stream);
         audioSourceNodeRef.current = audioSource;
+        console.log('✅ Audio source node created');
         
         const audioDestination = audioContext.createMediaStreamDestination();
         audioDestinationRef.current = audioDestination;
+        console.log('✅ Audio destination created');
         
-        console.log('🎵 Audio effects initialized');
-      } catch (error) {
-        console.error('Failed to initialize audio effects:', error);
+        console.log('🎵 Audio effects fully initialized');
+      } catch (error: any) {
+        console.error('❌ Failed to initialize audio effects:', error);
+        console.error('Error name:', error.name);
+        console.error('Error message:', error.message);
+        alert(`Audio effects initialization failed: ${error.message}`);
         return;
       }
     }
     
     if (!audioEffectContextRef.current || !audioSourceNodeRef.current || !audioDestinationRef.current) {
-      console.warn('Audio effect context not initialized');
+      console.warn('⚠️ Audio effect context not initialized');
       return;
     }
+    
+    console.log(`✅ Audio context ready, applying ${effectType} effect...`);
 
     const audioContext = audioEffectContextRef.current;
     const source = audioSourceNodeRef.current;
@@ -748,9 +774,27 @@ function VideoChatLiveKitInner({
     
     // Get the processed audio track
     if (audioDestinationRef.current) {
-      const processedAudioTrack = audioDestinationRef.current.stream.getAudioTracks()[0];
-      setProcessedAudioTrack(processedAudioTrack);
-      console.log(`✅ Audio effect ${effectType} applied - will be transmitted to others`);
+      const stream = audioDestinationRef.current.stream;
+      const audioTracks = stream.getAudioTracks();
+      console.log(`🎵 Audio destination stream has ${audioTracks.length} audio tracks`);
+      
+      if (audioTracks.length > 0) {
+        const processedAudioTrack = audioTracks[0];
+        console.log(`🎵 Audio track details:`, {
+          id: processedAudioTrack.id,
+          label: processedAudioTrack.label,
+          enabled: processedAudioTrack.enabled,
+          readyState: processedAudioTrack.readyState,
+          muted: processedAudioTrack.muted
+        });
+        
+        setProcessedAudioTrack(processedAudioTrack);
+        console.log(`✅ Audio effect ${effectType} applied - will be transmitted to others`);
+      } else {
+        console.error('❌ No audio tracks in processed stream!');
+      }
+    } else {
+      console.error('❌ Audio destination not available!');
     }
   };
 
@@ -779,15 +823,6 @@ function VideoChatLiveKitInner({
   const startVideoEffectProcessing = (rawVideoStream: MediaStream, currentEffect: typeof visualEffect) => {
     console.log(`🎨 Starting video processing with effect: ${currentEffect}`);
     
-    // Create canvas for video processing
-    const canvas = document.createElement('canvas');
-    canvas.width = 1280;
-    canvas.height = 720;
-    videoEffectCanvasRef.current = canvas;
-    
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return null;
-    
     // Create video element to read from
     const video = document.createElement('video');
     video.srcObject = rawVideoStream;
@@ -797,84 +832,100 @@ function VideoChatLiveKitInner({
     
     rawVideoStreamRef.current = rawVideoStream;
     
-    // Get the filter to apply
-    const filterCSS = getVisualEffectCSS(currentEffect);
-    console.log(`🎨 Applying filter: ${filterCSS}`);
-    
-    // Process video frames
-    const processFrame = () => {
-      if (!videoEffectCanvasRef.current || !ctx || !video) {
-        console.warn('Canvas or video not available');
-        return;
-      }
-      
-      // Check if video is ready and has dimensions
-      if (video.readyState < video.HAVE_CURRENT_DATA || video.videoWidth === 0) {
-        videoEffectAnimationRef.current = requestAnimationFrame(processFrame);
-        return;
-      }
-      
-      try {
-        // Clear canvas first
-        ctx.clearRect(0, 0, canvas.width, canvas.height);
-        
-        // Save context state
-        ctx.save();
-        
-        // Apply visual effect filter
-        if (filterCSS && filterCSS !== 'none') {
-          ctx.filter = filterCSS;
-        }
-        
-        // Mirror/flip for mirror effect
-        if (currentEffect === 'mirror') {
-          ctx.translate(canvas.width, 0);
-          ctx.scale(-1, 1);
-        }
-        
-        // Draw video frame to canvas
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        
-        // Restore context state
-        ctx.restore();
-        
-      } catch (err) {
-        console.error('Error drawing video frame:', err);
-      }
-      
-      // Continue animation loop
-      videoEffectAnimationRef.current = requestAnimationFrame(processFrame);
-    };
-    
-    // Start processing when video loads and plays
+    // Wait for video metadata to get actual dimensions
     video.onloadedmetadata = () => {
-      console.log(`🎥 Video metadata loaded - ${video.videoWidth}x${video.videoHeight}`);
-    };
-    
-    video.oncanplay = () => {
-      console.log('🎥 Video can play, starting frame processing');
-      if (!video.paused) {
-        processFrame();
+      console.log(`📹 Video dimensions: ${video.videoWidth}x${video.videoHeight}`);
+      
+      // Create canvas matching actual video dimensions (handles portrait/landscape)
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth || 1280;
+      canvas.height = video.videoHeight || 720;
+      videoEffectCanvasRef.current = canvas;
+      
+      console.log(`🎨 Canvas dimensions: ${canvas.width}x${canvas.height}`);
+      
+      const ctx = canvas.getContext('2d', { willReadFrequently: true });
+      if (!ctx) {
+        console.error('Failed to get canvas context');
+        return;
       }
+      
+      // Get the filter to apply
+      const filterCSS = getVisualEffectCSS(currentEffect);
+      console.log(`🎨 Applying filter: ${filterCSS}`);
+      
+      // Process video frames
+      const processFrame = () => {
+        if (!videoEffectCanvasRef.current || !ctx || !video) {
+          console.warn('Canvas or video not available');
+          return;
+        }
+        
+        // Check if video is ready and has dimensions
+        if (video.readyState < video.HAVE_CURRENT_DATA || video.videoWidth === 0) {
+          videoEffectAnimationRef.current = requestAnimationFrame(processFrame);
+          return;
+        }
+        
+        try {
+          // Clear canvas first
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Save context state
+          ctx.save();
+          
+          // Apply visual effect filter
+          if (filterCSS && filterCSS !== 'none') {
+            ctx.filter = filterCSS;
+          }
+          
+          // Mirror/flip for mirror effect
+          if (currentEffect === 'mirror') {
+            ctx.translate(canvas.width, 0);
+            ctx.scale(-1, 1);
+          }
+          
+          // Draw video frame to canvas
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          
+          // Restore context state
+          ctx.restore();
+          
+        } catch (err) {
+          console.error('Error drawing video frame:', err);
+        }
+        
+        // Continue animation loop
+        videoEffectAnimationRef.current = requestAnimationFrame(processFrame);
+      };
+      
+      // Start processing when video loads and plays
+      video.oncanplay = () => {
+        console.log('🎥 Video can play, starting frame processing');
+        if (!video.paused) {
+          processFrame();
+        }
+      };
+      
+      // Ensure video plays
+      video.play().then(() => {
+        console.log('🎥 Video playing');
+        processFrame();
+      }).catch(err => {
+        console.error('Video play error:', err);
+      });
+      
+      // Capture canvas stream
+      const processedStream = canvas.captureStream(30); // 30 FPS
+      processedVideoStreamRef.current = processedStream;
+      
+      const videoTrack = processedStream.getVideoTracks()[0];
+      setProcessedVideoTrack(videoTrack);
+      
+      console.log('✅ Video effects processing started');
     };
     
-    // Ensure video plays
-    video.play().then(() => {
-      console.log('🎥 Video playing');
-      processFrame();
-    }).catch(err => {
-      console.error('Video play error:', err);
-    });
-    
-    // Capture canvas stream
-    const processedStream = canvas.captureStream(30); // 30 FPS
-    processedVideoStreamRef.current = processedStream;
-    
-    const videoTrack = processedStream.getVideoTracks()[0];
-    setProcessedVideoTrack(videoTrack);
-    
-    console.log('✅ Video effects processing started');
-    return videoTrack;
+    return null;
   };
 
   const stopVideoEffectProcessing = () => {
@@ -1008,17 +1059,43 @@ function VideoChatLiveKitInner({
       try {
         console.log('🎨 Initializing video effects...');
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 1280, height: 720 }
+          video: { 
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: 'user'
+          }
         });
         
+        rawVideoStreamRef.current = stream;
         startVideoEffectProcessing(stream, visualEffect);
       } catch (error) {
-        console.warn('Could not initialize video effects:', error);
+        console.error('❌ Failed to initialize video effects:', error);
+        alert(`Could not start video effects: ${error.message}`);
       }
     };
     
     initVideoProcessing();
   }, [visualEffect]);
+  
+  // Initialize audio processing when audio effects are used
+  useEffect(() => {
+    const initAudioProcessing = async () => {
+      // Only process audio if audio effect is active
+      if (audioEffect === 'none') {
+        return; // Cleanup is handled in the manageAudioTrack useEffect
+      }
+      
+      try {
+        console.log(`🎵 Initializing audio effect: ${audioEffect}`);
+        await applyAudioEffect(audioEffect);
+      } catch (error) {
+        console.error('❌ Failed to initialize audio effects:', error);
+        alert(`Could not start audio effects: ${error.message}`);
+      }
+    };
+    
+    initAudioProcessing();
+  }, [audioEffect]);
 
   const handleDisconnect = async () => {
     const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
@@ -1107,6 +1184,7 @@ function VideoChatLiveKitInner({
           setShowEffectsPanel={setShowEffectsPanel}
           processedVideoTrack={processedVideoTrack}
           processedAudioTrack={processedAudioTrack}
+          stopVideoEffectProcessing={stopVideoEffectProcessing}
         />
       </LiveKitRoom>
     </div>
@@ -1135,6 +1213,7 @@ function CustomVideoUI({
   setShowEffectsPanel,
   processedVideoTrack,
   processedAudioTrack,
+  stopVideoEffectProcessing,
 }: {
   partnerName: string;
   callDuration: number;
@@ -1156,6 +1235,7 @@ function CustomVideoUI({
   setShowEffectsPanel: (show: boolean) => void;
   processedVideoTrack: MediaStreamTrack | null;
   processedAudioTrack: MediaStreamTrack | null;
+  stopVideoEffectProcessing: () => void;
 }) {
   const participants = useParticipants();
   const tracks = useTracks([
@@ -1255,13 +1335,18 @@ function CustomVideoUI({
             source: Track.Source.Camera,
             simulcast: true,
           });
-          console.log('✅ Video with effects published');
+          console.log('✅ Video with effects published - others will see it!');
           
-        } else if (visualEffect === 'none' && existingTrack && processedVideoTrack) {
-          // Remove effect: restore raw camera
+        } else if (visualEffect === 'none' && existingTrack) {
+          // Remove effect: restore raw camera (regardless of processedVideoTrack state)
           console.log('🎨 Removing visual effect, restoring raw camera...');
           
-          await room.localParticipant.unpublishTrack(existingTrack.track!);
+          try {
+            await room.localParticipant.unpublishTrack(existingTrack.track!);
+            console.log('📹 Unpublished effect video track');
+          } catch (err) {
+            console.warn('Could not unpublish video track:', err);
+          }
           
           // Get fresh raw camera
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -1273,7 +1358,11 @@ function CustomVideoUI({
             source: Track.Source.Camera,
             simulcast: true,
           });
-          console.log('✅ Raw camera restored');
+          console.log('✅ Raw camera restored - others see normal video');
+          
+          // Clean up processed video
+          stopVideoEffectProcessing();
+          setProcessedVideoTrack(null);
         }
         
       } catch (error) {
@@ -1289,15 +1378,22 @@ function CustomVideoUI({
   // Replace audio track based on audio effects
   React.useEffect(() => {
     const manageAudioTrack = async () => {
-      if (!room || room.state !== 'connected') return;
+      console.log(`🎵 manageAudioTrack triggered - audioEffect: ${audioEffect}, processedAudioTrack: ${!!processedAudioTrack}, room: ${!!room}, room.state: ${room?.state}`);
+      
+      if (!room || room.state !== 'connected') {
+        console.warn(`⚠️ Room not ready for audio track management`);
+        return;
+      }
       
       try {
         // Get existing audio publication
         const existingAudioTrack = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+        console.log(`🎵 Existing audio track: ${!!existingAudioTrack}`);
         
         if (audioEffect !== 'none' && processedAudioTrack) {
           // Apply effect: replace with processed track
-          console.log(`🎵 Applying ${audioEffect} effect to audio...`);
+          console.log(`🎵 Replacing audio with ${audioEffect} effect...`);
+          console.log(`🎵 Processed audio track state: ${processedAudioTrack.readyState}, enabled: ${processedAudioTrack.enabled}`);
           
           if (existingAudioTrack && existingAudioTrack.track) {
             await room.localParticipant.unpublishTrack(existingAudioTrack.track);
@@ -1309,11 +1405,16 @@ function CustomVideoUI({
           });
           console.log('✅ Audio with effects published - others will hear it!');
           
-        } else if (audioEffect === 'none' && existingAudioTrack && processedAudioTrack) {
-          // Remove effect: restore raw microphone
+        } else if (audioEffect === 'none' && existingAudioTrack) {
+          // Remove effect: restore raw microphone (regardless of processedAudioTrack state)
           console.log('🎵 Removing audio effect, restoring raw microphone...');
           
-          await room.localParticipant.unpublishTrack(existingAudioTrack.track!);
+          try {
+            await room.localParticipant.unpublishTrack(existingAudioTrack.track!);
+            console.log('🎤 Unpublished effect audio track');
+          } catch (err) {
+            console.warn('Could not unpublish audio track:', err);
+          }
           
           // Get fresh raw microphone
           const stream = await navigator.mediaDevices.getUserMedia({
@@ -1324,7 +1425,29 @@ function CustomVideoUI({
           await room.localParticipant.publishTrack(audioTrack, {
             source: Track.Source.Microphone,
           });
-          console.log('✅ Raw microphone restored');
+          console.log('✅ Raw microphone restored - others hear normal audio');
+          
+          // Clean up audio effect nodes
+          if (currentAudioEffectNodesRef.current.length > 0) {
+            currentAudioEffectNodesRef.current.forEach(node => {
+              try {
+                if ('stop' in node && typeof (node as any).stop === 'function') {
+                  (node as any).stop();
+                }
+                node.disconnect();
+              } catch (err) {
+                console.warn('Error cleaning up audio node:', err);
+              }
+            });
+            currentAudioEffectNodesRef.current = [];
+          }
+          
+          if (audioEffectContextRef.current) {
+            await audioEffectContextRef.current.close();
+            audioEffectContextRef.current = null;
+          }
+          
+          setProcessedAudioTrack(null);
         }
         
       } catch (error) {
