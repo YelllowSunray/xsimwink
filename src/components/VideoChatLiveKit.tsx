@@ -77,12 +77,35 @@ function VideoChatLiveKitInner({
   const [showRecordingSettings, setShowRecordingSettings] = useState(false);
   const [mediaRecorder, setMediaRecorder] = useState<MediaRecorder | null>(null);
   const [recordedChunks, setRecordedChunks] = useState<Blob[]>([]);
+  
+  // Effects state
+  const [audioEffect, setAudioEffect] = useState<'none' | 'robot' | 'echo' | 'distortion' | 'deep' | 'reverb' | 'autotune'>('none');
+  const [visualEffect, setVisualEffect] = useState<'none' | 'blur' | 'sepia' | 'grayscale' | 'vintage' | 'neon' | 'mirror'>('none');
+  const [showEffectsPanel, setShowEffectsPanel] = useState(false);
+  
   const startTimeRef = useRef<number>(Date.now());
   const localStreamRef = useRef<MediaStream | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const drawIntervalRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
+  
+  // Audio effects refs
+  const audioEffectContextRef = useRef<AudioContext | null>(null);
+  const audioSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const audioDestinationRef = useRef<MediaStreamAudioDestinationNode | null>(null);
+  const currentAudioEffectNodesRef = useRef<AudioNode[]>([]);
+  
+  // Video effects refs
+  const videoEffectCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const videoEffectAnimationRef = useRef<number | null>(null);
+  const processedVideoStreamRef = useRef<MediaStream | null>(null);
+  const rawVideoStreamRef = useRef<MediaStream | null>(null);
+  
+  // Processed streams for LiveKit
+  const [processedAudioTrack, setProcessedAudioTrack] = useState<MediaStreamTrack | null>(null);
+  const [processedVideoTrack, setProcessedVideoTrack] = useState<MediaStreamTrack | null>(null);
+  
   const { user, addSessionHistory, addRecording } = useAuth();
 
   // Canvas Composite Recording - Captures all participants
@@ -198,7 +221,40 @@ function VideoChatLiveKitInner({
               drawX = x + (cellWidth - drawWidth) / 2;
             }
 
+            // Apply visual effects to canvas context
+            // Check if this is the local video by matching srcObject or element properties
+            const isLocalVideo = index === 0; // Assuming first video is local
+            
+            if (isLocalVideo) {
+              ctx.save(); // Save context state
+              
+              // Apply canvas filters based on current visual effect
+              switch (visualEffect) {
+                case 'blur':
+                  ctx.filter = 'blur(4px)';
+                  break;
+                case 'sepia':
+                  ctx.filter = 'sepia(80%)';
+                  break;
+                case 'grayscale':
+                  ctx.filter = 'grayscale(100%)';
+                  break;
+                case 'vintage':
+                  ctx.filter = 'sepia(50%) contrast(120%) brightness(90%)';
+                  break;
+                case 'neon':
+                  ctx.filter = 'saturate(200%) contrast(150%) brightness(110%) hue-rotate(15deg)';
+                  break;
+                default:
+                  ctx.filter = 'none';
+              }
+            }
+
             ctx.drawImage(video, drawX, drawY, drawWidth, drawHeight);
+            
+            if (isLocalVideo) {
+              ctx.restore(); // Restore context state
+            }
 
             // Add subtle border between videos
             ctx.strokeStyle = '#333333';
@@ -424,6 +480,352 @@ function VideoChatLiveKitInner({
     }
   };
 
+  // Apply audio effect in real-time
+  const applyAudioEffect = (effectType: typeof audioEffect) => {
+    if (!audioEffectContextRef.current || !audioSourceNodeRef.current || !audioDestinationRef.current) {
+      console.warn('Audio effect context not initialized');
+      return;
+    }
+
+    const audioContext = audioEffectContextRef.current;
+    const source = audioSourceNodeRef.current;
+    const destination = audioDestinationRef.current;
+
+    // Disconnect all existing nodes
+    currentAudioEffectNodesRef.current.forEach(node => {
+      try {
+        node.disconnect();
+      } catch (e) {
+        // Already disconnected
+      }
+    });
+    source.disconnect();
+
+    const newNodes: AudioNode[] = [];
+    let currentNode: AudioNode = source;
+
+    switch (effectType) {
+      case 'robot': {
+        // Ring modulator effect for robot voice
+        const oscillator = audioContext.createOscillator();
+        oscillator.frequency.value = 30;
+        oscillator.type = 'sine';
+        oscillator.start();
+
+        const gainNode = audioContext.createGain();
+        gainNode.gain.value = 0.5;
+
+        const ringModulator = audioContext.createGain();
+        
+        currentNode.connect(ringModulator);
+        oscillator.connect(ringModulator.gain);
+        ringModulator.connect(gainNode);
+        gainNode.connect(destination);
+
+        newNodes.push(oscillator, ringModulator, gainNode);
+        console.log('🤖 Robot effect applied');
+        break;
+      }
+
+      case 'echo': {
+        // Delay/echo effect
+        const delay = audioContext.createDelay(5.0);
+        delay.delayTime.value = 0.3; // 300ms delay
+
+        const feedback = audioContext.createGain();
+        feedback.gain.value = 0.4; // Echo decay
+
+        const dryGain = audioContext.createGain();
+        dryGain.gain.value = 0.7; // Original signal
+
+        const wetGain = audioContext.createGain();
+        wetGain.gain.value = 0.5; // Echo signal
+
+        // Dry path
+        currentNode.connect(dryGain);
+        dryGain.connect(destination);
+
+        // Wet path with feedback
+        currentNode.connect(delay);
+        delay.connect(feedback);
+        feedback.connect(delay);
+        delay.connect(wetGain);
+        wetGain.connect(destination);
+
+        newNodes.push(delay, feedback, dryGain, wetGain);
+        console.log('🔊 Echo effect applied');
+        break;
+      }
+
+      case 'distortion': {
+        // Waveshaper distortion
+        const distortion = audioContext.createWaveShaper();
+        
+        const amount = 50;
+        const samples = 44100;
+        const curve = new Float32Array(samples);
+        
+        for (let i = 0; i < samples; i++) {
+          const x = (i * 2) / samples - 1;
+          curve[i] = ((3 + amount) * x * 20) / (Math.PI + amount * Math.abs(x));
+        }
+        
+        distortion.curve = curve;
+        distortion.oversample = '4x';
+
+        const preGain = audioContext.createGain();
+        preGain.gain.value = 0.5;
+
+        const postGain = audioContext.createGain();
+        postGain.gain.value = 0.3;
+
+        currentNode.connect(preGain);
+        preGain.connect(distortion);
+        distortion.connect(postGain);
+        postGain.connect(destination);
+
+        newNodes.push(distortion, preGain, postGain);
+        console.log('🎸 Distortion effect applied');
+        break;
+      }
+
+      case 'deep': {
+        // Deep voice with low-pass filter
+        const filter = audioContext.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.value = 400;
+        filter.Q.value = 1;
+
+        const gain = audioContext.createGain();
+        gain.gain.value = 2.0;
+
+        currentNode.connect(filter);
+        filter.connect(gain);
+        gain.connect(destination);
+
+        newNodes.push(filter, gain);
+        console.log('🎙️ Deep voice effect applied');
+        break;
+      }
+
+      case 'reverb': {
+        // Convolver reverb
+        const convolver = audioContext.createConvolver();
+        
+        // Create impulse response for reverb
+        const sampleRate = audioContext.sampleRate;
+        const length = sampleRate * 2; // 2 seconds
+        const impulse = audioContext.createBuffer(2, length, sampleRate);
+        
+        for (let channel = 0; channel < 2; channel++) {
+          const channelData = impulse.getChannelData(channel);
+          for (let i = 0; i < length; i++) {
+            channelData[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 2);
+          }
+        }
+        
+        convolver.buffer = impulse;
+
+        const dryGain = audioContext.createGain();
+        dryGain.gain.value = 0.6;
+
+        const wetGain = audioContext.createGain();
+        wetGain.gain.value = 0.4;
+
+        currentNode.connect(dryGain);
+        dryGain.connect(destination);
+
+        currentNode.connect(convolver);
+        convolver.connect(wetGain);
+        wetGain.connect(destination);
+
+        newNodes.push(convolver, dryGain, wetGain);
+        console.log('🏛️ Reverb effect applied');
+        break;
+      }
+
+      case 'autotune': {
+        // Autotune-style vocoder effect
+        // Creates a harmonized, pitch-corrected sound using multiple oscillators
+        const oscillator1 = audioContext.createOscillator();
+        const oscillator2 = audioContext.createOscillator();
+        const oscillator3 = audioContext.createOscillator();
+        
+        // Set frequencies to musical intervals (C major chord)
+        oscillator1.frequency.value = 261.63; // C4
+        oscillator2.frequency.value = 329.63; // E4
+        oscillator3.frequency.value = 392.00; // G4
+        
+        oscillator1.type = 'sine';
+        oscillator2.type = 'sine';
+        oscillator3.type = 'sine';
+        
+        // Create gain nodes for mixing
+        const inputGain = audioContext.createGain();
+        inputGain.gain.value = 0.3; // Reduce input level
+        
+        const modulator1 = audioContext.createGain();
+        const modulator2 = audioContext.createGain();
+        const modulator3 = audioContext.createGain();
+        
+        // Create a compressor for smooth output
+        const compressor = audioContext.createDynamicsCompressor();
+        compressor.threshold.value = -20;
+        compressor.knee.value = 30;
+        compressor.ratio.value = 12;
+        compressor.attack.value = 0.003;
+        compressor.release.value = 0.25;
+        
+        // Create filter for clarity
+        const filter = audioContext.createBiquadFilter();
+        filter.type = 'bandpass';
+        filter.frequency.value = 1000;
+        filter.Q.value = 1;
+        
+        const outputGain = audioContext.createGain();
+        outputGain.gain.value = 3.0; // Boost output
+        
+        // Connect the vocoder chain
+        currentNode.connect(inputGain);
+        
+        // Three parallel modulator paths
+        inputGain.connect(modulator1);
+        inputGain.connect(modulator2);
+        inputGain.connect(modulator3);
+        
+        oscillator1.connect(modulator1.gain);
+        oscillator2.connect(modulator2.gain);
+        oscillator3.connect(modulator3.gain);
+        
+        modulator1.connect(compressor);
+        modulator2.connect(compressor);
+        modulator3.connect(compressor);
+        
+        compressor.connect(filter);
+        filter.connect(outputGain);
+        outputGain.connect(destination);
+        
+        // Start oscillators
+        oscillator1.start();
+        oscillator2.start();
+        oscillator3.start();
+        
+        newNodes.push(oscillator1, oscillator2, oscillator3, inputGain, modulator1, modulator2, modulator3, compressor, filter, outputGain);
+        console.log('🎵 Autotune effect applied');
+        break;
+      }
+
+      case 'none':
+      default:
+        // No effect - direct connection
+        currentNode.connect(destination);
+        console.log('🎤 No audio effect');
+        break;
+    }
+
+    currentAudioEffectNodesRef.current = newNodes;
+    setAudioEffect(effectType);
+  };
+
+  // Get CSS filter for visual effects
+  const getVisualEffectCSS = (effectType: typeof visualEffect): string => {
+    switch (effectType) {
+      case 'blur':
+        return 'blur(4px)';
+      case 'sepia':
+        return 'sepia(80%)';
+      case 'grayscale':
+        return 'grayscale(100%)';
+      case 'vintage':
+        return 'sepia(50%) contrast(120%) brightness(90%)';
+      case 'neon':
+        return 'saturate(200%) contrast(150%) brightness(110%) hue-rotate(15deg)';
+      case 'mirror':
+        return ''; // Handled by transform
+      case 'none':
+      default:
+        return 'none';
+    }
+  };
+
+  // Process video with visual effects for transmission to other participants
+  const startVideoEffectProcessing = (rawVideoStream: MediaStream) => {
+    // Create canvas for video processing
+    const canvas = document.createElement('canvas');
+    canvas.width = 640;
+    canvas.height = 480;
+    videoEffectCanvasRef.current = canvas;
+    
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    
+    // Create video element to read from
+    const video = document.createElement('video');
+    video.srcObject = rawVideoStream;
+    video.autoplay = true;
+    video.muted = true;
+    video.playsInline = true;
+    
+    rawVideoStreamRef.current = rawVideoStream;
+    
+    // Process video frames
+    const processFrame = () => {
+      if (!videoEffectCanvasRef.current || !ctx) return;
+      
+      // Draw video to canvas with effects
+      ctx.save();
+      
+      // Apply current visual effect filter
+      ctx.filter = getVisualEffectCSS(visualEffect);
+      
+      // Mirror/flip for self view
+      if (visualEffect === 'mirror') {
+        ctx.translate(canvas.width, 0);
+        ctx.scale(-1, 1);
+      }
+      
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      ctx.restore();
+      
+      videoEffectAnimationRef.current = requestAnimationFrame(processFrame);
+    };
+    
+    video.onloadedmetadata = () => {
+      processFrame();
+    };
+    
+    // Capture canvas stream
+    const processedStream = canvas.captureStream(30); // 30 FPS
+    processedVideoStreamRef.current = processedStream;
+    
+    const videoTrack = processedStream.getVideoTracks()[0];
+    setProcessedVideoTrack(videoTrack);
+    
+    console.log('✅ Video effects processing started');
+    return videoTrack;
+  };
+
+  const stopVideoEffectProcessing = () => {
+    if (videoEffectAnimationRef.current) {
+      cancelAnimationFrame(videoEffectAnimationRef.current);
+      videoEffectAnimationRef.current = null;
+    }
+    if (processedVideoStreamRef.current) {
+      processedVideoStreamRef.current.getTracks().forEach(track => track.stop());
+      processedVideoStreamRef.current = null;
+    }
+    setProcessedVideoTrack(null);
+  };
+
+  // Update video effects when visualEffect changes
+  useEffect(() => {
+    if (rawVideoStreamRef.current && visualEffect !== 'none') {
+      // Restart processing with new effect
+      stopVideoEffectProcessing();
+      startVideoEffectProcessing(rawVideoStreamRef.current);
+    }
+  }, [visualEffect]);
+
   const handleEndCall = async () => {
     // Stop recording if active
     if (isRecording) {
@@ -513,6 +915,73 @@ function VideoChatLiveKitInner({
     };
   }, [partnerId, user?.uid]);
 
+  // Initialize audio effects pipeline and start video processing
+  useEffect(() => {
+    const initEffects = async () => {
+      try {
+        // Get microphone and camera access
+        const stream = await navigator.mediaDevices.getUserMedia({ 
+          audio: true,
+          video: { width: 640, height: 480 }
+        });
+        
+        // Initialize audio effects
+        const audioContext = new AudioContext();
+        audioEffectContextRef.current = audioContext;
+        
+        const audioSource = audioContext.createMediaStreamSource(stream);
+        audioSourceNodeRef.current = audioSource;
+        
+        const audioDestination = audioContext.createMediaStreamDestination();
+        audioDestinationRef.current = audioDestination;
+        
+        // Start with no audio effect (direct connection)
+        audioSource.connect(audioDestination);
+        
+        const audioTrack = audioDestination.stream.getAudioTracks()[0];
+        setProcessedAudioTrack(audioTrack);
+        
+        console.log('🎵 Audio effects pipeline initialized');
+        
+        // Initialize video effects processing
+        const videoStream = new MediaStream(stream.getVideoTracks());
+        startVideoEffectProcessing(videoStream);
+        
+        console.log('🎥 Video effects pipeline initialized');
+        
+      } catch (error) {
+        console.warn('Could not initialize effects:', error);
+      }
+    };
+    
+    initEffects();
+    
+    return () => {
+      // Cleanup audio effects
+      if (audioEffectContextRef.current) {
+        audioEffectContextRef.current.close();
+        audioEffectContextRef.current = null;
+      }
+      currentAudioEffectNodesRef.current = [];
+      
+      // Cleanup video effects
+      stopVideoEffectProcessing();
+    };
+  }, []);
+
+  // Update audio effects when audioEffect changes
+  useEffect(() => {
+    if (audioEffect !== 'none') {
+      applyAudioEffect(audioEffect);
+      
+      // Update processed audio track
+      if (audioDestinationRef.current) {
+        const newAudioTrack = audioDestinationRef.current.stream.getAudioTracks()[0];
+        setProcessedAudioTrack(newAudioTrack);
+      }
+    }
+  }, [audioEffect]);
+
   const handleDisconnect = async () => {
     const duration = Math.floor((Date.now() - startTimeRef.current) / 1000);
 
@@ -555,12 +1024,15 @@ function VideoChatLiveKitInner({
     return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
-  if (!token) {
+  // Wait for token and processed tracks before connecting
+  if (!token || !processedAudioTrack || !processedVideoTrack) {
     return (
       <div className="fixed inset-0 bg-black z-50 flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-pink-500 mx-auto mb-4"></div>
-          <p className="text-white text-lg">Connecting to {partnerName}...</p>
+          <p className="text-white text-lg">
+            {!token ? `Connecting to ${partnerName}...` : 'Initializing effects...'}
+          </p>
         </div>
       </div>
     );
@@ -569,8 +1041,8 @@ function VideoChatLiveKitInner({
   return (
     <div className="fixed inset-0 bg-black z-50">
       <LiveKitRoom
-        video={true}
-        audio={true}
+        video={processedVideoTrack}
+        audio={processedAudioTrack}
         token={token}
         serverUrl={serverUrl}
         connect={true}
@@ -590,6 +1062,13 @@ function VideoChatLiveKitInner({
           setShowRecordingSettings={setShowRecordingSettings}
           startRecording={startRecording}
           stopRecording={stopRecording}
+          audioEffect={audioEffect}
+          setAudioEffect={applyAudioEffect}
+          visualEffect={visualEffect}
+          setVisualEffect={setVisualEffect}
+          getVisualEffectCSS={getVisualEffectCSS}
+          showEffectsPanel={showEffectsPanel}
+          setShowEffectsPanel={setShowEffectsPanel}
         />
       </LiveKitRoom>
     </div>
@@ -609,6 +1088,13 @@ function CustomVideoUI({
   setShowRecordingSettings,
   startRecording,
   stopRecording,
+  audioEffect,
+  setAudioEffect,
+  visualEffect,
+  setVisualEffect,
+  getVisualEffectCSS,
+  showEffectsPanel,
+  setShowEffectsPanel,
 }: {
   partnerName: string;
   callDuration: number;
@@ -621,6 +1107,13 @@ function CustomVideoUI({
   setShowRecordingSettings: (show: boolean) => void;
   startRecording: () => void;
   stopRecording: () => void;
+  audioEffect: 'none' | 'robot' | 'echo' | 'distortion' | 'deep' | 'reverb' | 'autotune';
+  setAudioEffect: (effect: 'none' | 'robot' | 'echo' | 'distortion' | 'deep' | 'reverb' | 'autotune') => void;
+  visualEffect: 'none' | 'blur' | 'sepia' | 'grayscale' | 'vintage' | 'neon' | 'mirror';
+  setVisualEffect: (effect: 'none' | 'blur' | 'sepia' | 'grayscale' | 'vintage' | 'neon' | 'mirror') => void;
+  getVisualEffectCSS: (effect: 'none' | 'blur' | 'sepia' | 'grayscale' | 'vintage' | 'neon' | 'mirror') => string;
+  showEffectsPanel: boolean;
+  setShowEffectsPanel: (show: boolean) => void;
 }) {
   const participants = useParticipants();
   const tracks = useTracks([
@@ -662,25 +1155,6 @@ function CustomVideoUI({
   const remoteParticipants = participants.filter((p) => !p.isLocal);
   const localParticipant = participants.find((p) => p.isLocal);
   const totalPeople = participants.length;
-  
-  // Auto-end call when the other person leaves (1-on-1 scenarios)
-  React.useEffect(() => {
-    // Only track participant changes after initial connection
-    if (totalPeople === 0) return;
-    
-    // Scenario 1: 1-on-1 call - if only 1 person left (just me), other person left
-    // Scenario 2: Group call reduced to 1-on-1, then someone leaves
-    if (totalPeople === 1 && localParticipant) {
-      console.log('👋 Other participant(s) left, ending call...');
-      
-      // Small delay to ensure clean disconnection
-      const timeoutId = setTimeout(() => {
-        onEndCall();
-      }, 1000);
-      
-      return () => clearTimeout(timeoutId);
-    }
-  }, [totalPeople, localParticipant, onEndCall]);
   
   // Broadcast recording state when it changes
   React.useEffect(() => {
@@ -802,7 +1276,8 @@ function CustomVideoUI({
               width: "100%", 
               height: "100%", 
                 objectFit: "contain",
-                transform: isSelf ? "scaleX(-1)" : undefined
+                transform: isSelf ? (visualEffect === 'mirror' ? "scaleX(-1) scaleY(-1)" : "scaleX(-1)") : undefined,
+                filter: isSelf ? getVisualEffectCSS(visualEffect) : 'none'
               }}
             />
             {audioTrack && <AudioTrack trackRef={audioTrack} />}
@@ -939,6 +1414,17 @@ function CustomVideoUI({
             </button>
           )}
 
+          {/* Effects Button */}
+          <button
+            onClick={() => setShowEffectsPanel(!showEffectsPanel)}
+            className={`p-4 md:p-4 rounded-full ${showEffectsPanel ? 'bg-purple-600' : 'bg-gray-600'} hover:bg-purple-700 active:bg-purple-800 transition-all duration-200 flex items-center justify-center touch-target min-w-[56px] min-h-[56px]`}
+            title="Effects"
+          >
+            <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
+            </svg>
+          </button>
+
           {/* End Call Button - Made more prominent on mobile */}
           <button
             onClick={onEndCall}
@@ -993,6 +1479,182 @@ function CustomVideoUI({
                 Cancel
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Effects Panel */}
+      {showEffectsPanel && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-gradient-to-br from-black/90 to-gray-900/90 border border-purple-500/30 rounded-2xl max-w-md w-full p-6">
+            <h3 className="text-xl font-bold text-white mb-6 flex items-center gap-2">
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
+              </svg>
+              Effects
+            </h3>
+            
+            <div className="space-y-6 mb-6">
+              {/* Audio Effects */}
+              <div>
+                <label className="block text-purple-300 text-sm font-medium mb-3">
+                  🎤 Audio Effects
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setAudioEffect('none')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      audioEffect === 'none'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    Normal
+                  </button>
+                  <button
+                    onClick={() => setAudioEffect('robot')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      audioEffect === 'robot'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🤖 Robot
+                  </button>
+                  <button
+                    onClick={() => setAudioEffect('echo')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      audioEffect === 'echo'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🔊 Echo
+                  </button>
+                  <button
+                    onClick={() => setAudioEffect('reverb')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      audioEffect === 'reverb'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🏛️ Reverb
+                  </button>
+                  <button
+                    onClick={() => setAudioEffect('deep')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      audioEffect === 'deep'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🎙️ Deep
+                  </button>
+                  <button
+                    onClick={() => setAudioEffect('distortion')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      audioEffect === 'distortion'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🎸 Distortion
+                  </button>
+                  <button
+                    onClick={() => setAudioEffect('autotune')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      audioEffect === 'autotune'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🎵 Autotune
+                  </button>
+                </div>
+              </div>
+
+              {/* Visual Effects */}
+              <div>
+                <label className="block text-purple-300 text-sm font-medium mb-3">
+                  🎨 Visual Effects
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    onClick={() => setVisualEffect('none')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      visualEffect === 'none'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    Normal
+                  </button>
+                  <button
+                    onClick={() => setVisualEffect('blur')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      visualEffect === 'blur'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    🌫️ Blur
+                  </button>
+                  <button
+                    onClick={() => setVisualEffect('sepia')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      visualEffect === 'sepia'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    📷 Sepia
+                  </button>
+                  <button
+                    onClick={() => setVisualEffect('grayscale')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      visualEffect === 'grayscale'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    ⚫ B&W
+                  </button>
+                  <button
+                    onClick={() => setVisualEffect('vintage')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      visualEffect === 'vintage'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    📽️ Vintage
+                  </button>
+                  <button
+                    onClick={() => setVisualEffect('neon')}
+                    className={`px-4 py-2 rounded-lg transition ${
+                      visualEffect === 'neon'
+                        ? 'bg-purple-600 text-white'
+                        : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
+                    }`}
+                  >
+                    ✨ Neon
+                  </button>
+                </div>
+              </div>
+
+              <div className="text-gray-400 text-xs">
+                <p>✨ Effects are applied in real-time</p>
+                <p>🎥 Effects will be captured in recordings</p>
+              </div>
+            </div>
+            
+            <button
+              onClick={() => setShowEffectsPanel(false)}
+              className="w-full bg-gray-700 text-white py-2 rounded-lg hover:bg-gray-600 transition font-semibold"
+            >
+              Done
+            </button>
           </div>
         </div>
       )}
