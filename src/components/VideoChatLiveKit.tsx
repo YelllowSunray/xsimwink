@@ -1068,9 +1068,9 @@ function VideoChatLiveKitInner({
         
         rawVideoStreamRef.current = stream;
         startVideoEffectProcessing(stream, visualEffect);
-      } catch (error) {
+      } catch (error: any) {
         console.error('❌ Failed to initialize video effects:', error);
-        alert(`Could not start video effects: ${error.message}`);
+        alert(`Could not start video effects: ${error?.message || error}`);
       }
     };
     
@@ -1088,9 +1088,9 @@ function VideoChatLiveKitInner({
       try {
         console.log(`🎵 Initializing audio effect: ${audioEffect}`);
         await applyAudioEffect(audioEffect);
-      } catch (error) {
+      } catch (error: any) {
         console.error('❌ Failed to initialize audio effects:', error);
-        alert(`Could not start audio effects: ${error.message}`);
+        alert(`Could not start audio effects: ${error?.message || error}`);
       }
     };
     
