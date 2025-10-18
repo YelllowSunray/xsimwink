@@ -1041,8 +1041,8 @@ function VideoChatLiveKitInner({
   return (
     <div className="fixed inset-0 bg-black z-50">
       <LiveKitRoom
-        video={processedVideoTrack}
-        audio={processedAudioTrack}
+        video={false}
+        audio={false}
         token={token}
         serverUrl={serverUrl}
         connect={true}
@@ -1069,6 +1069,8 @@ function VideoChatLiveKitInner({
           getVisualEffectCSS={getVisualEffectCSS}
           showEffectsPanel={showEffectsPanel}
           setShowEffectsPanel={setShowEffectsPanel}
+          processedVideoTrack={processedVideoTrack}
+          processedAudioTrack={processedAudioTrack}
         />
       </LiveKitRoom>
     </div>
@@ -1095,6 +1097,8 @@ function CustomVideoUI({
   getVisualEffectCSS,
   showEffectsPanel,
   setShowEffectsPanel,
+  processedVideoTrack,
+  processedAudioTrack,
 }: {
   partnerName: string;
   callDuration: number;
@@ -1114,6 +1118,8 @@ function CustomVideoUI({
   getVisualEffectCSS: (effect: 'none' | 'blur' | 'sepia' | 'grayscale' | 'vintage' | 'neon' | 'mirror') => string;
   showEffectsPanel: boolean;
   setShowEffectsPanel: (show: boolean) => void;
+  processedVideoTrack: MediaStreamTrack | null;
+  processedAudioTrack: MediaStreamTrack | null;
 }) {
   const participants = useParticipants();
   const tracks = useTracks([
@@ -1121,6 +1127,47 @@ function CustomVideoUI({
     { source: Track.Source.Microphone, withPlaceholder: false },
   ]);
   const room = useRoomContext();
+  
+  // Publish processed tracks when room connects
+  React.useEffect(() => {
+    const publishProcessedTracks = async () => {
+      if (!room || !processedVideoTrack || !processedAudioTrack) return;
+      
+      try {
+        // Wait for room to be connected
+        if (room.state !== 'connected') {
+          await new Promise<void>((resolve) => {
+            const checkConnection = () => {
+              if (room.state === 'connected') {
+                resolve();
+              } else {
+                setTimeout(checkConnection, 100);
+              }
+            };
+            checkConnection();
+          });
+        }
+        
+        // Publish video track with effects
+        await room.localParticipant.publishTrack(processedVideoTrack, {
+          name: 'camera',
+          simulcast: true,
+        });
+        console.log('✅ Published processed video track');
+        
+        // Publish audio track with effects
+        await room.localParticipant.publishTrack(processedAudioTrack, {
+          name: 'microphone',
+        });
+        console.log('✅ Published processed audio track');
+        
+      } catch (error) {
+        console.error('Error publishing processed tracks:', error);
+      }
+    };
+    
+    publishProcessedTracks();
+  }, [room, processedVideoTrack, processedAudioTrack]);
   
   // Track who is recording (participantIdentity -> participantName)
   const [recordingParticipants, setRecordingParticipants] = React.useState<Map<string, string>>(new Map());
