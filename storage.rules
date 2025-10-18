@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Firebase Storage Security Rules for Thumb App
+// Firebase Storage Security Rules for Thumb Appd
 service firebase.storage {
   match /b/{bucket}/o {
     
