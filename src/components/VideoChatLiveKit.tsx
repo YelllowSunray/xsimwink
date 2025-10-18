@@ -770,11 +770,13 @@ function VideoChatLiveKitInner({
   };
 
   // Process video with visual effects for transmission to other participants
-  const startVideoEffectProcessing = (rawVideoStream: MediaStream) => {
+  const startVideoEffectProcessing = (rawVideoStream: MediaStream, currentEffect: typeof visualEffect) => {
+    console.log(`🎨 Starting video processing with effect: ${currentEffect}`);
+    
     // Create canvas for video processing
     const canvas = document.createElement('canvas');
-    canvas.width = 640;
-    canvas.height = 480;
+    canvas.width = 1280;
+    canvas.height = 720;
     videoEffectCanvasRef.current = canvas;
     
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -789,31 +791,74 @@ function VideoChatLiveKitInner({
     
     rawVideoStreamRef.current = rawVideoStream;
     
+    // Get the filter to apply
+    const filterCSS = getVisualEffectCSS(currentEffect);
+    console.log(`🎨 Applying filter: ${filterCSS}`);
+    
     // Process video frames
     const processFrame = () => {
-      if (!videoEffectCanvasRef.current || !ctx) return;
-      
-      // Draw video to canvas with effects
-      ctx.save();
-      
-      // Apply current visual effect filter
-      ctx.filter = getVisualEffectCSS(visualEffect);
-      
-      // Mirror/flip for self view
-      if (visualEffect === 'mirror') {
-        ctx.translate(canvas.width, 0);
-        ctx.scale(-1, 1);
+      if (!videoEffectCanvasRef.current || !ctx || !video) {
+        console.warn('Canvas or video not available');
+        return;
       }
       
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      ctx.restore();
+      // Check if video is ready and has dimensions
+      if (video.readyState < video.HAVE_CURRENT_DATA || video.videoWidth === 0) {
+        videoEffectAnimationRef.current = requestAnimationFrame(processFrame);
+        return;
+      }
       
+      try {
+        // Clear canvas first
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        
+        // Save context state
+        ctx.save();
+        
+        // Apply visual effect filter
+        if (filterCSS && filterCSS !== 'none') {
+          ctx.filter = filterCSS;
+        }
+        
+        // Mirror/flip for mirror effect
+        if (currentEffect === 'mirror') {
+          ctx.translate(canvas.width, 0);
+          ctx.scale(-1, 1);
+        }
+        
+        // Draw video frame to canvas
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        // Restore context state
+        ctx.restore();
+        
+      } catch (err) {
+        console.error('Error drawing video frame:', err);
+      }
+      
+      // Continue animation loop
       videoEffectAnimationRef.current = requestAnimationFrame(processFrame);
     };
     
+    // Start processing when video loads and plays
     video.onloadedmetadata = () => {
-      processFrame();
+      console.log(`🎥 Video metadata loaded - ${video.videoWidth}x${video.videoHeight}`);
     };
+    
+    video.oncanplay = () => {
+      console.log('🎥 Video can play, starting frame processing');
+      if (!video.paused) {
+        processFrame();
+      }
+    };
+    
+    // Ensure video plays
+    video.play().then(() => {
+      console.log('🎥 Video playing');
+      processFrame();
+    }).catch(err => {
+      console.error('Video play error:', err);
+    });
     
     // Capture canvas stream
     const processedStream = canvas.captureStream(30); // 30 FPS
@@ -950,17 +995,17 @@ function VideoChatLiveKitInner({
       // If already processing, restart with new effect
       if (rawVideoStreamRef.current) {
         stopVideoEffectProcessing();
-        startVideoEffectProcessing(rawVideoStreamRef.current);
+        startVideoEffectProcessing(rawVideoStreamRef.current, visualEffect);
         return;
       }
       
       try {
         console.log('🎨 Initializing video effects...');
         const stream = await navigator.mediaDevices.getUserMedia({ 
-          video: { width: 640, height: 480 }
+          video: { width: 1280, height: 720 }
         });
         
-        startVideoEffectProcessing(stream);
+        startVideoEffectProcessing(stream, visualEffect);
       } catch (error) {
         console.warn('Could not initialize video effects:', error);
       }
