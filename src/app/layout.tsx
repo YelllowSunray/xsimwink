@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { SpotifyProvider } from "@/contexts/SpotifyContext";
 // import FirebaseDebugger from "@/components/FirebaseDebugger";
 // import AuthDebugger from "@/components/AuthDebugger";
 
@@ -36,11 +35,9 @@ export default function RootLayout({
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
         </head>
         <AuthProvider>
-          <SpotifyProvider>
-            {children}
-            {/* <AuthDebugger /> */}
-            {/* <FirebaseDebugger /> */}
-          </SpotifyProvider>
+          {children}
+          {/* <AuthDebugger /> */}
+          {/* <FirebaseDebugger /> */}
         </AuthProvider>
       </body>
     </html>
