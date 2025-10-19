@@ -1,6 +1,7 @@
 // Performer Discovery and Matching Service
 import { collection, query, where, orderBy, limit, getDocs, doc, getDoc, onSnapshot, updateDoc, arrayUnion, arrayRemove, increment } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
+import { PresenceService } from './PresenceService';
 
 export interface Performer {
   id: string;
@@ -10,6 +11,7 @@ export interface Performer {
   gender: string;
   isOnline: boolean;
   lastSeen?: Date;
+  lastHeartbeat?: Date; // NEW: Track last heartbeat to detect stale connections
   rating?: number;
   totalRatings?: number;
   tags: string[];
@@ -62,9 +64,24 @@ export class PerformerService {
     const data = docSnap.data ? docSnap.data() : docSnap;
 
     const lastSeen = data?.lastSeen?.toDate ? data.lastSeen.toDate() : data?.lastSeen;
+    const lastHeartbeat = data?.lastHeartbeat?.toDate ? data.lastHeartbeat.toDate() : data?.lastHeartbeat;
     const busyUntil = data?.availability?.busyUntil?.toDate
       ? data.availability.busyUntil.toDate()
       : data?.availability?.busyUntil;
+
+    // Check if heartbeat is stale (older than threshold)
+    let isActuallyOnline = !!data?.isOnline;
+    if (isActuallyOnline && lastHeartbeat) {
+      const heartbeatAge = Date.now() - lastHeartbeat.getTime();
+      if (heartbeatAge > PresenceService.STALE_THRESHOLD_MS) {
+        console.log(`⚠️ Stale heartbeat detected for ${data?.displayName}: ${Math.round(heartbeatAge / 1000)}s old`);
+        isActuallyOnline = false; // Mark as offline if heartbeat is stale
+      }
+    } else if (isActuallyOnline && !lastHeartbeat) {
+      // No heartbeat at all, but marked online - this is suspicious
+      console.log(`⚠️ No heartbeat found for ${data?.displayName} but marked online`);
+      isActuallyOnline = false;
+    }
 
     return {
       id: docSnap.id ?? data.id,
@@ -72,8 +89,9 @@ export class PerformerService {
       displayName: data?.displayName ?? "",
       age: data?.age ?? 18,
       gender: data?.gender ?? "Other",
-      isOnline: !!data?.isOnline,
+      isOnline: isActuallyOnline, // Use validated online status
       lastSeen: lastSeen,
+      lastHeartbeat: lastHeartbeat,
       rating: data?.rating ?? 0,
       totalRatings: data?.totalRatings ?? 0,
       tags: Array.isArray(data?.tags) ? data.tags : [],
@@ -98,7 +116,7 @@ export class PerformerService {
         favoriteCount: data?.stats?.favoriteCount ?? 0,
       },
       availability: {
-        isAvailable: data?.availability?.isAvailable ?? !!data?.isOnline,
+        isAvailable: data?.availability?.isAvailable && isActuallyOnline, // Must be both available AND have fresh heartbeat
         busyUntil: busyUntil,
         timezone: data?.availability?.timezone ?? "UTC",
       },

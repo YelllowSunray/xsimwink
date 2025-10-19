@@ -17,6 +17,9 @@ service cloud.firestore {
       // allow read: if request.auth != null;
       // allow create: if request.auth != null && request.auth.uid == performerId;
       // allow update, delete: if request.auth != null && request.auth.uid == performerId;
+      
+      // Allow heartbeat updates (lastHeartbeat, lastSeen, isOnline fields)
+      // These are frequently updated by the presence service
     }
     
     // Presence/online status - users can update their own, anyone can read
