@@ -1,4 +1,4 @@
-// Firestore Security Rules for Thumb App
+// Firestore Security Rules for Wink App
 // These rules allow authenticated users to read and write their own data
 
 rules_version = '2';

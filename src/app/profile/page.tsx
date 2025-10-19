@@ -144,7 +144,7 @@ export default function ProfilePage() {
               </button>
               <a href="/">
                 <h1 className="text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">
-                  Thumb
+                  Wink
                 </h1>
               </a>
             </div>

@@ -471,7 +471,7 @@ export default function Home() {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-4 md:gap-8">
               <h1 className="text-2xl md:text-3xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-pink-400 to-purple-400">
-                Thumb
+                Wink
               </h1>
               
               {/* Desktop Navigation */}

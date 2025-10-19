@@ -101,7 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   const [loading, setLoading] = useState(true);
 
   // Convert username to email format for Firebase
-  const usernameToEmail = (username: string) => `${username.toLowerCase()}@thumb.app`;
+  const usernameToEmail = (username: string) => `${username.toLowerCase()}@wink.app`;
 
   // Fetch user profile from Firestore with retry logic
   const fetchUserProfile = async (uid: string, retryCount = 0) => {

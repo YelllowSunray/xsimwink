@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Thumb - Live Video Connections",
+  title: "Wink - Live Video Connections",
   description: "Connect with amazing people through live video chat",
   viewport: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no",
 };
