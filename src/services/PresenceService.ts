@@ -87,7 +87,7 @@ export class PresenceService {
         });
         
         // Try sendBeacon first (more reliable on mobile)
-        if (navigator.sendBeacon) {
+        if (typeof navigator !== 'undefined' && 'sendBeacon' in navigator) {
           const blob = new Blob([data], { type: 'application/json' });
           // Note: You would need a backend endpoint for this
           // For now, we'll still use the Firebase method below
