@@ -127,7 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             displayName: authUser?.displayName || derivedUsername,
             age: 18,
             gender: "prefer-not-to-say",
-            isPerformer: false, // Changed to false - users must explicitly opt-in to be performers
+            isPerformer: true, // Default to true - users are performers by default
             connectionFee: 2.99,
             selfieAvailable: false,
             preferences: {
@@ -236,7 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         displayName: profileData.displayName || username,
         age: profileData.age || 18,
         gender: profileData.gender || "prefer-not-to-say",
-        isPerformer: profileData.isPerformer ?? false, // Changed to false - users must explicitly opt-in to be performers
+        isPerformer: profileData.isPerformer ?? true, // Default to true - users are performers by default
         connectionFee: profileData.connectionFee ?? appConfig.defaultConnectionFee ?? 2.99,
         selfieAvailable: profileData.selfieAvailable ?? false,
         preferences: {
@@ -260,11 +260,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       // Immediately set the user and profile states
       setUser(userCredential.user);
       setUserProfile(profile);
-      // If signing up as performer, create performer record but don't set online yet
-      // User must explicitly go online via the heartbeat on the main page
+      // Create performer record for new users (they're performers by default)
+      // Set online=false initially - heartbeat will set them online when they visit main page
       if (profile.isPerformer) {
         try { 
-          await PresenceService.upsertPerformer(userCredential.user.uid, profile, false); // Set online=false initially
+          await PresenceService.upsertPerformer(userCredential.user.uid, profile, false);
         } catch {}
       }
       console.log("✅ User profile created successfully and state updated");
