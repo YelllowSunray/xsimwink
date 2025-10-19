@@ -11,16 +11,16 @@ interface RadioStation {
   icon?: string;
 }
 
-// Popular internet radio stations (free streaming URLs)
+// Popular internet radio stations (HTTPS streaming URLs)
 const RADIO_STATIONS: RadioStation[] = [
-  { id: 'lofi', name: 'Lofi Girl Radio', url: 'http://stream.zeno.fm/f3wvbbqmdg8uv', genre: 'Lo-fi/Chill', country: '🎧' },
-  { id: 'jazz', name: 'Smooth Jazz 24/7', url: 'http://smoothjazz.com.pl/mp3', genre: 'Jazz', country: '🎷' },
-  { id: 'classical', name: 'Classical Music', url: 'http://listen.181fm.com/181-classical_128k.mp3', genre: 'Classical', country: '🎻' },
-  { id: 'pop', name: 'Top 40 Hits', url: 'http://listen.181fm.com/181-star90s_128k.mp3', genre: 'Pop', country: '🎤' },
-  { id: 'rock', name: 'Classic Rock', url: 'http://listen.181fm.com/181-greatoldies_128k.mp3', genre: 'Rock', country: '🎸' },
-  { id: 'electronic', name: 'Electronic Dance', url: 'http://listen.181fm.com/181-beat_128k.mp3', genre: 'Electronic', country: '💥' },
-  { id: 'hiphop', name: 'Hip Hop Beats', url: 'http://listen.181fm.com/181-beatport_128k.mp3', genre: 'Hip Hop', country: '🎵' },
-  { id: 'ambient', name: 'Ambient Chill', url: 'http://listen.181fm.com/181-chill_128k.mp3', genre: 'Ambient', country: '☁️' },
+  { id: 'lofi', name: 'Chill Lofi Beats', url: 'https://stream.zeno.fm/fhz1bm0d44zuv', genre: 'Lo-fi/Chill', country: '🎧' },
+  { id: 'electronic', name: 'Electronic Dance', url: 'https://stream.zeno.fm/f3wvbbqmdg8uv', genre: 'Electronic', country: '💥' },
+  { id: 'jazz', name: 'Smooth Jazz', url: 'https://stream.zeno.fm/0r0xa792kwzuv', genre: 'Jazz', country: '🎷' },
+  { id: 'pop', name: 'Top 40 Hits', url: 'https://stream.zeno.fm/d1rc9z5qg18uv', genre: 'Pop', country: '🎤' },
+  { id: 'hiphop', name: 'Hip Hop Beats', url: 'https://stream.zeno.fm/9a1agybrgg8uv', genre: 'Hip Hop', country: '🎵' },
+  { id: 'rock', name: 'Classic Rock', url: 'https://stream.zeno.fm/nkqd62ap5hhvv', genre: 'Rock', country: '🎸' },
+  { id: 'classical', name: 'Classical Music', url: 'https://stream.zeno.fm/f3ndepithhvvv', genre: 'Classical', country: '🎻' },
+  { id: 'ambient', name: 'Ambient Chill', url: 'https://stream.zeno.fm/cpyf0cnb5hhvv', genre: 'Ambient', country: '☁️' },
 ];
 
 interface RadioPlayerProps {
@@ -41,12 +41,44 @@ export default function RadioPlayer({
   const [isExpanded, setIsExpanded] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const isChangingStationRef = useRef(false); // Prevent race conditions
+  const hasUserInteractedRef = useRef(false); // Track if user has interacted with audio
 
   // Initialize audio element
   useEffect(() => {
     const audio = new Audio();
     audio.volume = volume / 100;
     audioRef.current = audio;
+    
+    // Prime the audio element for autoplay by attempting to play silence
+    // This helps bypass browser autoplay restrictions
+    const primeAudio = async () => {
+      if (!hasUserInteractedRef.current) {
+        try {
+          // Try to play and immediately pause to prime the element
+          audio.src = '';
+          await audio.play().catch(() => {});
+          audio.pause();
+          hasUserInteractedRef.current = true;
+          console.log('✅ Audio element primed for autoplay');
+        } catch (e) {
+          console.log('ℹ️ Could not prime audio element');
+        }
+      }
+    };
+    
+    // Prime on first user interaction with the document
+    const handleFirstInteraction = () => {
+      primeAudio();
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('keydown', handleFirstInteraction);
+    };
+    
+    document.addEventListener('click', handleFirstInteraction);
+    document.addEventListener('keydown', handleFirstInteraction);
+    
+    // Try to prime immediately (may fail, but worth trying)
+    primeAudio();
     
     const handlePlaying = () => {
       setIsLoading(false);
@@ -62,7 +94,37 @@ export default function RadioPlayer({
     };
     
     const handleError = (e: Event) => {
-      console.error('Radio stream error:', e);
+      const target = e.target as HTMLAudioElement;
+      const error = target.error;
+      
+      console.error('Radio stream error:', {
+        event: e,
+        error: error,
+        code: error?.code,
+        message: error?.message,
+        currentSrc: target.currentSrc,
+      });
+      
+      // Log user-friendly error messages
+      if (error) {
+        switch (error.code) {
+          case 1: // MEDIA_ERR_ABORTED
+            console.warn('⚠️ Stream loading aborted');
+            break;
+          case 2: // MEDIA_ERR_NETWORK
+            console.error('❌ Network error loading stream');
+            break;
+          case 3: // MEDIA_ERR_DECODE
+            console.error('❌ Stream decode error (format not supported)');
+            break;
+          case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
+            console.error('❌ Stream URL not supported or unavailable');
+            break;
+          default:
+            console.error('❌ Unknown stream error');
+        }
+      }
+      
       setIsLoading(false);
       setIsPlaying(false);
     };
@@ -73,6 +135,8 @@ export default function RadioPlayer({
     audio.addEventListener('error', handleError);
 
     return () => {
+      document.removeEventListener('click', handleFirstInteraction);
+      document.removeEventListener('keydown', handleFirstInteraction);
       audio.removeEventListener('playing', handlePlaying);
       audio.removeEventListener('pause', handlePause);
       audio.removeEventListener('waiting', handleWaiting);
@@ -90,62 +154,57 @@ export default function RadioPlayer({
     }
   }, [volume]);
 
-  // Handle remote station changes (from other user)
-  useEffect(() => {
-    if (listenTogether && remoteStation) {
-      const station = RADIO_STATIONS.find(s => s.id === remoteStation);
-      if (station && station.id !== currentStation?.id) {
-        console.log('🎵 Syncing to remote station:', station.name);
-        
-        if (!audioRef.current) {
-          console.error('Audio element not initialized');
-          return;
-        }
-
-        setIsLoading(true);
-        setCurrentStation(station);
-        
-        try {
-          audioRef.current.pause();
-          audioRef.current.src = station.url;
-          audioRef.current.play().catch(err => {
-            console.error('Error playing remote station:', err);
-            setIsLoading(false);
-            setIsPlaying(false);
-          });
-        } catch (err) {
-          console.error('Error setting up remote station:', err);
-          setIsLoading(false);
-          setIsPlaying(false);
-        }
-      }
-    }
-  }, [remoteStation, listenTogether, currentStation?.id]);
-
-  const playStation = (station: RadioStation, broadcast = true) => {
-    if (!audioRef.current) {
-      console.error('Audio element not initialized');
+  // Internal function to change stations (handles the audio element properly)
+  const playStationInternal = React.useCallback(async (station: RadioStation, broadcast: boolean) => {
+    if (!audioRef.current || isChangingStationRef.current) {
+      console.log('⏸️ Station change already in progress, skipping');
       return;
     }
 
+    isChangingStationRef.current = true;
     setIsLoading(true);
     setCurrentStation(station);
     
     try {
-      // Stop current stream
-      audioRef.current.pause();
-      audioRef.current.src = station.url;
+      const audio = audioRef.current;
       
-      // Play new stream
-      audioRef.current.play().catch(err => {
-        console.error('Error playing radio:', err);
+      // Stop and reset the audio element properly
+      audio.pause();
+      
+      // Wait a bit for pause to complete
+      await new Promise(resolve => setTimeout(resolve, 50));
+      
+      // Set new source and load it
+      audio.src = station.url;
+      audio.load(); // Important: reset the media element
+      
+      // Try to play - this will auto-play for synced stations
+      await audio.play();
+      
+      console.log('✅ Station playing:', station.name);
+      hasUserInteractedRef.current = true; // Mark that audio has played successfully
+      setIsLoading(false);
+      setIsPlaying(true);
+    } catch (err: any) {
+      console.error('❌ Error playing radio:', err);
+      
+      // Handle autoplay restrictions
+      if (err.name === 'NotAllowedError') {
+        console.warn('⚠️ Autoplay blocked by browser. Station loaded but not playing.');
+        // Set state to show station is ready but not playing
         setIsLoading(false);
         setIsPlaying(false);
-      });
-    } catch (err) {
-      console.error('Error setting up radio station:', err);
-      setIsLoading(false);
-      setIsPlaying(false);
+        // Station is loaded, user can click play
+      } else if (err.name === 'AbortError') {
+        // Expected when changing stations quickly
+        console.log('⏸️ Play aborted (station changed)');
+      } else {
+        // Other errors
+        setIsLoading(false);
+        setIsPlaying(false);
+      }
+    } finally {
+      isChangingStationRef.current = false;
     }
 
     // Broadcast to other user if Listen Together is enabled
@@ -155,17 +214,42 @@ export default function RadioPlayer({
     }
 
     setShowStations(false);
+  }, [listenTogether, onStationChange]);
+
+  // Handle remote station changes (from other user)
+  useEffect(() => {
+    if (listenTogether && remoteStation) {
+      const station = RADIO_STATIONS.find(s => s.id === remoteStation);
+      if (station && station.id !== currentStation?.id) {
+        console.log('🎵 Syncing to remote station:', station.name);
+        console.log('🔄 Remote station change detected - auto-playing for sync');
+        
+        if (!audioRef.current || isChangingStationRef.current) {
+          console.log('⏸️ Skipping - station change already in progress');
+          return;
+        }
+
+        // Auto-play the synced station
+        playStationInternal(station, false);
+      }
+    }
+  }, [remoteStation, listenTogether, currentStation?.id, playStationInternal]);
+
+  const playStation = (station: RadioStation, broadcast = true) => {
+    playStationInternal(station, broadcast);
   };
 
-  const togglePlay = () => {
-    if (!audioRef.current || !currentStation) return;
+  const togglePlay = async () => {
+    if (!audioRef.current || !currentStation || isChangingStationRef.current) return;
 
-    if (isPlaying) {
-      audioRef.current.pause();
-    } else {
-      audioRef.current.play().catch(err => {
-        console.error('Error playing:', err);
-      });
+    try {
+      if (isPlaying) {
+        audioRef.current.pause();
+      } else {
+        await audioRef.current.play();
+      }
+    } catch (err) {
+      console.error('Error toggling play:', err);
     }
   };
 

@@ -1595,16 +1595,18 @@ function CustomVideoUI({
   
   // Radio player state (for syncing between users)
   const [remoteStationId, setRemoteStationId] = React.useState<string | null>(null);
-  const [listenTogetherEnabled, setListenTogetherEnabled] = React.useState(true);
   const [showRadioPanel, setShowRadioPanel] = React.useState(false);
   
   // Listen for radio control from other users
+  // Radio is ALWAYS synced - both users listen to the same station
   useDataChannel('radio-sync', (message) => {
     try {
       const data = JSON.parse(new TextDecoder().decode(message.payload));
       console.log('📻 Radio sync received:', data);
       
-      if (data.stationId && listenTogetherEnabled) {
+      // Always sync - no option to disable
+      if (data.stationId) {
+        console.log('🎵 Syncing to station:', data.stationId);
         setRemoteStationId(data.stationId);
       }
     } catch (error) {
@@ -2400,7 +2402,7 @@ function CustomVideoUI({
       {showRadioPanel && (
         <div className="fixed bottom-24 md:bottom-4 left-4 z-40 max-w-md w-[calc(100vw-2rem)] md:w-auto">
           <RadioPlayer 
-            listenTogether={listenTogetherEnabled}
+            listenTogether={true}
             onStationChange={handleStationChange}
             remoteStation={remoteStationId}
           />
