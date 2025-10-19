@@ -117,7 +117,7 @@ function VideoChatLiveKitInner({
   // Room reference for recording (will be set by CustomVideoUI)
   const roomRef = useRef<any>(null);
   
-  const { user, addSessionHistory, addRecording } = useAuth();
+  const { user, userProfile, addSessionHistory, addRecording } = useAuth();
 
   // Clean Multi-Participant Recording - Direct from LiveKit tracks
   const startRecording = async () => {
@@ -1297,7 +1297,7 @@ function VideoChatLiveKitInner({
           body: JSON.stringify({
             roomName,
             participantIdentity: user.uid,
-            participantName: user.displayName || user.uid,
+            participantName: userProfile?.displayName || user.displayName || user.email?.split('@')[0] || user.uid,
           }),
         });
 
@@ -1607,6 +1607,7 @@ function CustomVideoUI({
   const [showChat, setShowChat] = React.useState(false);
   const [chatMessages, setChatMessages] = React.useState<Array<{sender: string, message: string, timestamp: number}>>([]);
   const [chatInput, setChatInput] = React.useState('');
+  const chatMessagesEndRef = React.useRef<HTMLDivElement>(null);
   
   // Mute state
   const [isAudioMuted, setIsAudioMuted] = React.useState(false);
@@ -1661,14 +1662,52 @@ function CustomVideoUI({
     });
   };
   
+  // Auto-scroll chat to bottom when new messages arrive
+  React.useEffect(() => {
+    chatMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+  
   // Listen for chat messages from other users
   useDataChannel('chat', (message) => {
     try {
       const data = JSON.parse(new TextDecoder().decode(message.payload));
-      console.log('💬 Chat message received:', data);
+      console.log('📥 Chat message received:', data);
+      
+      // Get the sender's identity
+      const senderIdentity = data.sender;
+      const localIdentity = room?.localParticipant?.identity;
+      
+      // Determine display name
+      let displayName = 'Unknown';
+      
+      if (senderIdentity === localIdentity) {
+        // This is our own message (shouldn't happen since we add it locally, but just in case)
+        displayName = 'You';
+        console.log('💬 Message from self');
+      } else {
+        // Priority order for display name:
+        // 1. senderName from the message data
+        // 2. Participant name from LiveKit room
+        // 3. partnerName prop
+        // 4. Fallback to "Partner"
+        
+        if (data.senderName) {
+          displayName = data.senderName;
+          console.log('💬 Using senderName from message:', displayName);
+        } else {
+          const senderParticipant = Array.from(room?.remoteParticipants?.values() || [])
+            .find(p => p.identity === senderIdentity);
+          
+          displayName = senderParticipant?.name || partnerName || 'Partner';
+          console.log('💬 Using participant name:', displayName, { 
+            fromParticipant: senderParticipant?.name,
+            fromProp: partnerName 
+          });
+        }
+      }
       
       setChatMessages(prev => [...prev, {
-        sender: data.sender || partnerName,
+        sender: displayName,
         message: data.message,
         timestamp: data.timestamp || Date.now()
       }]);
@@ -1752,16 +1791,31 @@ function CustomVideoUI({
   const sendChatMessage = () => {
     if (!chatInput.trim() || !room) return;
     
+    // Get local participant's identity and name
+    const localIdentity = room.localParticipant?.identity || 'Unknown';
+    const localName = room.localParticipant?.name || 'You';
+    
+    console.log('📤 Sending message:', { 
+      identity: localIdentity, 
+      name: localName,
+      message: chatInput 
+    });
+    
     const messageData = {
-      sender: 'You',
+      sender: localIdentity, // Send actual user ID for identification
+      senderName: localName, // Also send display name
       message: chatInput,
       timestamp: Date.now()
     };
     
-    // Add to local messages
-    setChatMessages(prev => [...prev, messageData]);
+    // Add to local messages with 'You' as display name
+    setChatMessages(prev => [...prev, {
+      sender: 'You', // Display as 'You' locally
+      message: chatInput,
+      timestamp: Date.now()
+    }]);
     
-    // Broadcast to other users
+    // Broadcast to other users with actual identity and name
     const data = new TextEncoder().encode(JSON.stringify(messageData));
     room.localParticipant?.publishData(data, {
       reliable: true,
@@ -2938,15 +2992,26 @@ function CustomVideoUI({
               </svg>
             </button>
           </div>
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
             {chatMessages.map((msg, idx) => (
-              <div key={idx} className={`${msg.sender === 'You' ? 'text-right' : 'text-left'}`}>
-                <div className={`inline-block px-3 py-2 rounded-lg ${msg.sender === 'You' ? 'bg-green-600 text-white' : 'bg-gray-700 text-white'}`}>
-                  <div className="text-xs opacity-75 mb-1">{msg.sender}</div>
-                  <div>{msg.message}</div>
+              <div key={idx} className={`flex ${msg.sender === 'You' ? 'justify-end' : 'justify-start'}`}>
+                <div className={`max-w-[75%] ${msg.sender === 'You' ? 'items-end' : 'items-start'} flex flex-col`}>
+                  <div className="text-xs font-semibold mb-1 px-1" 
+                       style={{ color: msg.sender === 'You' ? '#10b981' : '#f472b6' }}>
+                    {msg.sender}
+                  </div>
+                  <div className={`px-4 py-2 rounded-2xl shadow-lg ${
+                    msg.sender === 'You' 
+                      ? 'bg-gradient-to-r from-green-600 to-emerald-600 text-white rounded-br-sm' 
+                      : 'bg-gradient-to-r from-gray-700 to-gray-600 text-white rounded-bl-sm'
+                  }`}>
+                    <div className="break-words">{msg.message}</div>
+                  </div>
                 </div>
               </div>
             ))}
+            {/* Invisible element for auto-scroll */}
+            <div ref={chatMessagesEndRef} />
           </div>
           <div className="p-4 border-t border-green-500/30 flex gap-2">
             <input
