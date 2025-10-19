@@ -11,16 +11,16 @@ interface RadioStation {
   icon?: string;
 }
 
-// Popular internet radio stations (HTTPS streaming URLs)
+// Popular internet radio stations (free streaming URLs)
 const RADIO_STATIONS: RadioStation[] = [
-  { id: 'lofi', name: 'Chill Lofi Beats', url: 'https://stream.zeno.fm/fhz1bm0d44zuv', genre: 'Lo-fi/Chill', country: '🎧' },
-  { id: 'electronic', name: 'Electronic Dance', url: 'https://stream.zeno.fm/f3wvbbqmdg8uv', genre: 'Electronic', country: '💥' },
-  { id: 'jazz', name: 'Smooth Jazz', url: 'https://stream.zeno.fm/0r0xa792kwzuv', genre: 'Jazz', country: '🎷' },
-  { id: 'pop', name: 'Top 40 Hits', url: 'https://stream.zeno.fm/d1rc9z5qg18uv', genre: 'Pop', country: '🎤' },
-  { id: 'hiphop', name: 'Hip Hop Beats', url: 'https://stream.zeno.fm/9a1agybrgg8uv', genre: 'Hip Hop', country: '🎵' },
-  { id: 'rock', name: 'Classic Rock', url: 'https://stream.zeno.fm/nkqd62ap5hhvv', genre: 'Rock', country: '🎸' },
-  { id: 'classical', name: 'Classical Music', url: 'https://stream.zeno.fm/f3ndepithhvvv', genre: 'Classical', country: '🎻' },
-  { id: 'ambient', name: 'Ambient Chill', url: 'https://stream.zeno.fm/cpyf0cnb5hhvv', genre: 'Ambient', country: '☁️' },
+  { id: 'lofi', name: 'Lofi Girl Radio', url: 'http://stream.zeno.fm/f3wvbbqmdg8uv', genre: 'Lo-fi/Chill', country: '🎧' },
+  { id: 'jazz', name: 'Smooth Jazz 24/7', url: 'http://smoothjazz.com.pl/mp3', genre: 'Jazz', country: '🎷' },
+  { id: 'classical', name: 'Classical Music', url: 'http://listen.181fm.com/181-classical_128k.mp3', genre: 'Classical', country: '🎻' },
+  { id: 'pop', name: 'Top 40 Hits', url: 'http://listen.181fm.com/181-star90s_128k.mp3', genre: 'Pop', country: '🎤' },
+  { id: 'rock', name: 'Classic Rock', url: 'http://listen.181fm.com/181-greatoldies_128k.mp3', genre: 'Rock', country: '🎸' },
+  { id: 'electronic', name: 'Electronic Dance', url: 'http://listen.181fm.com/181-beat_128k.mp3', genre: 'Electronic', country: '💥' },
+  { id: 'hiphop', name: 'Hip Hop Beats', url: 'http://listen.181fm.com/181-beatport_128k.mp3', genre: 'Hip Hop', country: '🎵' },
+  { id: 'ambient', name: 'Ambient Chill', url: 'http://listen.181fm.com/181-chill_128k.mp3', genre: 'Ambient', country: '☁️' },
 ];
 
 interface RadioPlayerProps {
@@ -97,31 +97,46 @@ export default function RadioPlayer({
       const target = e.target as HTMLAudioElement;
       const error = target.error;
       
-      console.error('Radio stream error:', {
+      console.error('🔴 Radio stream error:', {
         event: e,
         error: error,
         code: error?.code,
         message: error?.message,
         currentSrc: target.currentSrc,
+        networkState: target.networkState,
+        readyState: target.readyState,
+        src: target.src,
       });
+      
+      console.error('🔍 Debug info:');
+      console.error('  - Browser:', navigator.userAgent);
+      console.error('  - Can play MP3:', target.canPlayType('audio/mpeg'));
+      console.error('  - Can play OGG:', target.canPlayType('audio/ogg'));
       
       // Log user-friendly error messages
       if (error) {
         switch (error.code) {
           case 1: // MEDIA_ERR_ABORTED
-            console.warn('⚠️ Stream loading aborted');
+            console.warn('⚠️ Stream loading aborted by user or browser');
             break;
           case 2: // MEDIA_ERR_NETWORK
-            console.error('❌ Network error loading stream');
+            console.error('❌ Network error loading stream - check your internet connection');
             break;
           case 3: // MEDIA_ERR_DECODE
-            console.error('❌ Stream decode error (format not supported)');
+            console.error('❌ Stream decode error (format not supported by browser)');
             break;
           case 4: // MEDIA_ERR_SRC_NOT_SUPPORTED
             console.error('❌ Stream URL not supported or unavailable');
+            console.error('💡 Possible causes:');
+            console.error('   - CORS policy blocking the stream');
+            console.error('   - Firewall/network blocking streaming URLs');
+            console.error('   - Browser security settings');
+            console.error('   - The stream URL is down or changed');
+            console.error('📝 Test: Try opening the URL directly in browser:');
+            console.error('   ' + target.src);
             break;
           default:
-            console.error('❌ Unknown stream error');
+            console.error('❌ Unknown stream error (code: ' + error.code + ')');
         }
       }
       
@@ -168,38 +183,49 @@ export default function RadioPlayer({
     try {
       const audio = audioRef.current;
       
-      // Stop and reset the audio element properly
+      console.log('🎵 Loading station:', station.name, 'URL:', station.url);
+      
+      // Stop current playback
       audio.pause();
+      audio.currentTime = 0;
       
-      // Wait a bit for pause to complete
-      await new Promise(resolve => setTimeout(resolve, 50));
-      
-      // Set new source and load it
+      // Set new source - DON'T call load() as it can cause issues
       audio.src = station.url;
-      audio.load(); // Important: reset the media element
       
-      // Try to play - this will auto-play for synced stations
+      // Add one-time error handler for this specific load
+      const loadError = (e: Event) => {
+        console.error('❌ Failed to load stream:', station.url);
+        audio.removeEventListener('error', loadError);
+      };
+      audio.addEventListener('error', loadError, { once: true });
+      
+      // Try to play
+      console.log('▶️ Attempting to play...');
       await audio.play();
       
-      console.log('✅ Station playing:', station.name);
-      hasUserInteractedRef.current = true; // Mark that audio has played successfully
+      console.log('✅ Station playing successfully:', station.name);
+      hasUserInteractedRef.current = true;
       setIsLoading(false);
       setIsPlaying(true);
     } catch (err: any) {
       console.error('❌ Error playing radio:', err);
+      console.error('Error name:', err.name);
+      console.error('Error message:', err.message);
       
       // Handle autoplay restrictions
       if (err.name === 'NotAllowedError') {
-        console.warn('⚠️ Autoplay blocked by browser. Station loaded but not playing.');
-        // Set state to show station is ready but not playing
+        console.warn('⚠️ Autoplay blocked by browser. Click play button to start.');
         setIsLoading(false);
         setIsPlaying(false);
-        // Station is loaded, user can click play
       } else if (err.name === 'AbortError') {
-        // Expected when changing stations quickly
-        console.log('⏸️ Play aborted (station changed)');
+        console.log('⏸️ Play aborted (station changed quickly)');
+      } else if (err.name === 'NotSupportedError') {
+        console.error('❌ Browser cannot play this audio format or URL');
+        console.error('Station URL:', station.url);
+        console.error('Try opening this URL directly in browser to test');
+        setIsLoading(false);
+        setIsPlaying(false);
       } else {
-        // Other errors
         setIsLoading(false);
         setIsPlaying(false);
       }
@@ -243,9 +269,9 @@ export default function RadioPlayer({
     if (!audioRef.current || !currentStation || isChangingStationRef.current) return;
 
     try {
-      if (isPlaying) {
-        audioRef.current.pause();
-      } else {
+    if (isPlaying) {
+      audioRef.current.pause();
+    } else {
         await audioRef.current.play();
       }
     } catch (err) {
