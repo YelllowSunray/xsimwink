@@ -10,10 +10,13 @@ service cloud.firestore {
       allow write: if request.auth != null && request.auth.uid == userId;
     }
     
-    // Performers collection - users can update their own, anyone can read
-    match /performers/{userId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && request.auth.uid == userId;
+    // Performers collection - TEMPORARILY OPEN FOR CLEANUP
+    match /performers/{performerId} {
+      allow read, write: if request.auth != null;
+      // TODO: After cleanup, change back to:
+      // allow read: if request.auth != null;
+      // allow create: if request.auth != null && request.auth.uid == performerId;
+      // allow update, delete: if request.auth != null && request.auth.uid == performerId;
     }
     
     // Presence/online status - users can update their own, anyone can read

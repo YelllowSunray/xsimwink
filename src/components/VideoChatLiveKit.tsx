@@ -56,6 +56,8 @@ import {
 } from "@livekit/components-react";
 import { Track, DataPacket_Kind } from "livekit-client";
 import { VideoStorageService } from "@/utils/videoStorage";
+import { radioStations, type RadioStation } from "@/constants/radioStations";
+import RadioPlayer from "@/components/RadioPlayer";
 
 interface VideoChatLiveKitProps {
   partnerId: string;
@@ -1591,6 +1593,39 @@ function CustomVideoUI({
     }
   }, [room, roomRef]);
   
+  // Radio player state (for syncing between users)
+  const [remoteStationId, setRemoteStationId] = React.useState<string | null>(null);
+  const [listenTogetherEnabled, setListenTogetherEnabled] = React.useState(true);
+  const [showRadioPanel, setShowRadioPanel] = React.useState(false);
+  
+  // Listen for radio control from other users
+  useDataChannel('radio-sync', (message) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(message.payload));
+      console.log('📻 Radio sync received:', data);
+      
+      if (data.stationId && listenTogetherEnabled) {
+        setRemoteStationId(data.stationId);
+      }
+    } catch (error) {
+      console.error('Error parsing radio sync message:', error);
+    }
+  });
+  
+  // Handle station change from local RadioPlayer
+  const handleStationChange = (stationId: string) => {
+    console.log('📡 Broadcasting station change:', stationId);
+    
+    // Broadcast to other users
+    const data = new TextEncoder().encode(JSON.stringify({
+      stationId: stationId
+    }));
+    room?.localParticipant?.publishData(data, { 
+      reliable: true,
+      topic: 'radio-sync'
+    });
+  };
+  
   // Handler to apply audio effects (ensures it's called properly)
   const handleAudioEffectChange = (effect: typeof audioEffect) => {
     console.log(`🎵 Changing audio effect to: ${effect}`);
@@ -2099,6 +2134,20 @@ function CustomVideoUI({
             </button>
           )}
 
+          {/* Radio Button */}
+          <button
+            onClick={() => setShowRadioPanel(!showRadioPanel)}
+            className={`p-4 md:p-4 rounded-full ${
+              showRadioPanel ? 'bg-pink-600' : 'bg-gray-600'
+            } hover:bg-pink-700 active:bg-pink-800 transition-all duration-200 touch-target min-w-[56px] min-h-[56px] flex items-center justify-center relative`}
+            title="Radio"
+          >
+            <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+              <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+            </svg>
+          </button>
+
           {/* Effects Button - Desktop Only */}
           {!isMobile && (
             <button
@@ -2344,6 +2393,17 @@ function CustomVideoUI({
               Done
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Radio Player - Positioned at bottom left */}
+      {showRadioPanel && (
+        <div className="fixed bottom-4 left-4 z-40 max-w-md">
+          <RadioPlayer 
+            listenTogether={listenTogetherEnabled}
+            onStationChange={handleStationChange}
+            remoteStation={remoteStationId}
+          />
         </div>
       )}
     </div>

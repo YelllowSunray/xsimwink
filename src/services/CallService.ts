@@ -108,4 +108,27 @@ export class CallService {
     const ref = doc(db, 'calls', callId);
     await updateDoc(ref, { status: 'ended', updatedAt: serverTimestamp() });
   }
+
+  // Listen for when a specific call is accepted or ended
+  static listenForCallAcceptance(callerId: string, calleeId: string, callback: (accepted: boolean) => void): () => void {
+    const roomId = [callerId, calleeId].sort().join('_');
+    const q = query(
+      collection(db, 'calls'), 
+      where('roomId', '==', roomId),
+      where('callerId', '==', callerId)
+    );
+    
+    return onSnapshot(q, (snap) => {
+      snap.docChanges().forEach((change) => {
+        if (change.type === 'modified') {
+          const data = change.doc.data();
+          if (data.status === 'accepted') {
+            callback(true);
+          } else if (data.status === 'ended') {
+            callback(false);
+          }
+        }
+      });
+    });
+  }
 }

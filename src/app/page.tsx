@@ -239,22 +239,41 @@ export default function Home() {
 
     try {
       // Create call invite for the callee
-      await CallService.createCall({
+      const { roomId } = await CallService.createCall({
         callerId: user!.uid,
         callerName: userProfile.displayName,
         calleeId: performer.id,
         calleeName: performer.displayName,
       });
 
-      setActiveCall({ 
-        id: performer.id, 
-        name: performer.displayName,
-        fee: 0 
+      // Don't enter the call yet - wait for callee to accept
+      // Listen for the call to be accepted
+      info("Calling...", `Calling ${performer.displayName}...`);
+      setConnectionModal({ isOpen: false });
+
+      // Listen for call acceptance
+      const unsubscribe = CallService.listenForCallAcceptance(user!.uid, performer.id, (accepted) => {
+        if (accepted) {
+          setActiveCall({ 
+            id: performer.id, 
+            name: performer.displayName,
+            fee: 0 
+          });
+          success("Connected!", `${performer.displayName} accepted your call`);
+        } else {
+          error("Call ended", `${performer.displayName} didn't answer`);
+        }
+        unsubscribe();
       });
 
-      setConnectionModal({ isOpen: false });
-      success("Connected!", `Starting session with ${performer.displayName}`);
+      // Timeout after 30 seconds
+      setTimeout(() => {
+        unsubscribe();
+        error("No answer", `${performer.displayName} didn't answer`);
+      }, 30000);
+
     } catch (err) {
+      console.error('Error creating call:', err);
       error("Connection failed", "Please try again");
     }
   };

@@ -13,6 +13,7 @@ export default function ProfilePage() {
   const router = useRouter();
   const [isEditing, setIsEditing] = useState(false);
   const [displayName, setDisplayName] = useState("");
+  const [email, setEmail] = useState("");
   const [interestedIn, setInterestedIn] = useState<string[]>([]);
   const [categories, setCategories] = useState<string[]>([]);
   const [performerCategories, setPerformerCategories] = useState<string[]>([]);
@@ -27,6 +28,7 @@ export default function ProfilePage() {
     }
     if (userProfile) {
       setDisplayName(userProfile.displayName);
+      setEmail(userProfile.email || user?.email || "");
       setInterestedIn(userProfile.preferences.interestedIn);
       setCategories(userProfile.preferences.categories);
       setPerformerCategories((userProfile as any).categories || []);
@@ -63,6 +65,7 @@ export default function ProfilePage() {
     try {
       const updates: any = {
         displayName,
+        email,
         bio,
         isPerformer,
         selfieAvailable,
@@ -356,6 +359,23 @@ export default function ProfilePage() {
 
             <div>
               <label className="block text-pink-300 text-sm font-medium mb-2">
+                Email Address
+              </label>
+              {isEditing ? (
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="your.email@example.com"
+                  className="w-full px-4 py-2 bg-black/30 border border-pink-500/30 rounded-lg focus:ring-2 focus:ring-pink-500 focus:border-transparent outline-none transition text-white"
+                />
+              ) : (
+                <p className="text-white">{userProfile.email || user?.email || "Not set"}</p>
+              )}
+            </div>
+
+            <div>
+              <label className="block text-pink-300 text-sm font-medium mb-2">
                 Interested In
               </label>
               {isEditing ? (
@@ -398,6 +418,10 @@ export default function ProfilePage() {
                 <div className="flex justify-between">
                   <span className="text-gray-400">Username:</span>
                   <span className="text-white">@{userProfile.username}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Email:</span>
+                  <span className="text-white">{userProfile.email || user?.email || "Not set"}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-400">Member since:</span>

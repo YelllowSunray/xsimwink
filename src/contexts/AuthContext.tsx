@@ -127,7 +127,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
             displayName: authUser?.displayName || derivedUsername,
             age: 18,
             gender: "prefer-not-to-say",
-            isPerformer: true,
+            isPerformer: false, // Changed to false - users must explicitly opt-in to be performers
             connectionFee: 2.99,
             selfieAvailable: false,
             preferences: {
@@ -198,10 +198,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       setUser(user);
       if (user) {
         await fetchUserProfile(user.uid);
-        // If current profile indicates performer, upsert presence
-        if (userProfile?.isPerformer) {
-          try { await PresenceService.upsertPerformer(user.uid, userProfile, true); } catch {}
-        }
+        // Note: We don't automatically set performers online on login
+        // The heartbeat in page.tsx handles online status for active performers
       } else {
         setUserProfile(null);
       }
@@ -211,17 +209,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
     return unsubscribe;
   }, []);
 
-  // Upsert performer presence whenever profile indicates performer
-  useEffect(() => {
-    const syncPresence = async () => {
-      if (user && userProfile?.isPerformer) {
-        try {
-          await PresenceService.upsertPerformer(user.uid, userProfile, true);
-        } catch (e) {}
-      }
-    };
-    syncPresence();
-  }, [user, userProfile?.isPerformer]);
+  // Note: We don't automatically sync presence on profile changes
+  // Performers must explicitly opt-in to being shown as online via the main page heartbeat
+  // This prevents all users from appearing online when they're just browsing
 
   const signUp = async (
     username: string,
@@ -246,7 +236,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
         displayName: profileData.displayName || username,
         age: profileData.age || 18,
         gender: profileData.gender || "prefer-not-to-say",
-        isPerformer: profileData.isPerformer ?? true,
+        isPerformer: profileData.isPerformer ?? false, // Changed to false - users must explicitly opt-in to be performers
         connectionFee: profileData.connectionFee ?? appConfig.defaultConnectionFee ?? 2.99,
         selfieAvailable: profileData.selfieAvailable ?? false,
         preferences: {
@@ -270,9 +260,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       // Immediately set the user and profile states
       setUser(userCredential.user);
       setUserProfile(profile);
-      // If signing up as performer, upsert presence
+      // If signing up as performer, create performer record but don't set online yet
+      // User must explicitly go online via the heartbeat on the main page
       if (profile.isPerformer) {
-        try { await PresenceService.upsertPerformer(userCredential.user.uid, profile, true); } catch {}
+        try { 
+          await PresenceService.upsertPerformer(userCredential.user.uid, profile, false); // Set online=false initially
+        } catch {}
       }
       console.log("✅ User profile created successfully and state updated");
     } catch (error: any) {
@@ -302,6 +295,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
   };
 
   const logout = async () => {
+    // Mark user as offline before logging out
+    if (user && userProfile?.isPerformer) {
+      try {
+        await PresenceService.setOnlineStatus(user.uid, false);
+      } catch (e) {
+        console.error("Error setting offline status on logout:", e);
+      }
+    }
     await signOut(auth);
     setUserProfile(null);
   };

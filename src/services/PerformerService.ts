@@ -139,13 +139,9 @@ export class PerformerService {
       const snapshot = await getDocs(performersQuery);
       let performers: Performer[] = snapshot.docs.map((doc) => this.mapDocToPerformer(doc));
 
-      // Derive online if lastSeen within 2 minutes
-      const now = Date.now();
-      performers = performers.map(p => ({
-        ...p,
-        isOnline: p.isOnline || (!!p.lastSeen && (now - new Date(p.lastSeen as any).getTime()) < 120000),
-      }));
-
+      // Use explicit isOnline status from database only
+      // Don't derive online status from lastSeen - let the heartbeat system handle it
+      
       // Apply client-side filters
       performers = this.applyClientFilters(performers, filters);
 
@@ -156,8 +152,11 @@ export class PerformerService {
 
       return performers;
     } catch (error) {
-      console.error('Error fetching performers:', error);
-      return this.getMockPerformers(filters);
+      console.error('❌ Error fetching performers:', error);
+      console.error('Error details:', error);
+      // Return empty array instead of mock data
+      // This ensures we only show real online performers from the database
+      return [];
     }
   }
 
@@ -195,13 +194,20 @@ export class PerformerService {
       );
 
       return onSnapshot(q, (snapshot) => {
+        console.log(`🔔 Real-time snapshot received: ${snapshot.docs.length} online performers`);
         const onlinePerformers: Performer[] = snapshot.docs.map((doc) => this.mapDocToPerformer(doc));
+        console.log('Online performers:', onlinePerformers.map(p => ({ id: p.id, name: p.displayName, isOnline: p.isOnline })));
         callback(onlinePerformers);
+      }, (error) => {
+        console.error('❌ Error in onSnapshot listener:', error);
+        // Return empty array on error instead of mock data
+        callback([]);
       });
     } catch (error) {
-      console.error('Error subscribing to online status:', error);
-      // Return mock data for development
-      setTimeout(() => callback(this.getMockPerformers({ onlineOnly: true })), 1000);
+      console.error('❌ Error subscribing to online status:', error);
+      console.error('Error details:', error);
+      // Return empty array instead of mock data
+      callback([]);
       return () => {};
     }
   }
