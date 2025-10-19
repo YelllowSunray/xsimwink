@@ -170,7 +170,7 @@ export default function PerformerCard({
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <div className="w-24 h-24 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-4xl font-bold">
-              {performer.displayName[0].toUpperCase()}
+              {performer.displayName?.[0]?.toUpperCase() || 'P'}
             </div>
           </div>
         )}

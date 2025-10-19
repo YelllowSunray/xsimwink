@@ -479,9 +479,9 @@ export default function Home() {
                 className="flex items-center gap-2 text-white hover:text-pink-400 transition"
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-sm font-bold">
-                  {userProfile.displayName[0].toUpperCase()}
+                  {userProfile?.displayName?.[0]?.toUpperCase() || 'U'}
                 </div>
-                <span className="hidden md:block">{userProfile.displayName}</span>
+                <span className="hidden md:block">{userProfile?.displayName || 'User'}</span>
               </a>
               
               {/* Mobile Menu Button */}
@@ -547,7 +547,7 @@ export default function Home() {
           <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
             <div className="flex-1">
               <h2 className="text-xl md:text-2xl font-bold text-white mb-1 md:mb-2">
-                Welcome back, {userProfile.displayName}! 🔥
+                Welcome back, {userProfile?.displayName || 'User'}! 🔥
               </h2>
               <p className="text-sm md:text-base text-gray-300">
                 {loadingPerformers ? 'Loading...' : `${filteredPerformers.filter(p => p.isOnline).length} people are live right now`}
