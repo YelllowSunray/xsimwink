@@ -314,8 +314,37 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({
       const docRef = doc(db, "users", user.uid);
       await setDoc(docRef, updates, { merge: true });
       
-      setUserProfile((prev) => (prev ? { ...prev, ...updates } : null));
-      console.log("Profile updated successfully");
+      // Update local state
+      const updatedProfile = userProfile ? { ...userProfile, ...updates } : null;
+      setUserProfile(updatedProfile);
+      
+      // If user is a performer, sync relevant changes to performers collection
+      if (updatedProfile && updatedProfile.isPerformer) {
+        console.log("🔄 Syncing profile updates to performer record...");
+        
+        // Build performer update object with only relevant fields
+        const performerUpdates: any = {};
+        
+        if ('displayName' in updates) performerUpdates.displayName = updates.displayName;
+        if ('profilePicture' in updates) performerUpdates.profilePicture = updates.profilePicture;
+        if ('bio' in updates) performerUpdates.bio = updates.bio;
+        if ('age' in updates) performerUpdates.age = updates.age;
+        if ('gender' in updates) performerUpdates.gender = updates.gender;
+        if ('connectionFee' in updates) performerUpdates.connectionFee = updates.connectionFee;
+        if ('preferences' in updates && updates.preferences?.categories) {
+          performerUpdates.tags = updates.preferences.categories;
+          performerUpdates['preferences.categories'] = updates.preferences.categories;
+        }
+        
+        // Only update if there are relevant changes
+        if (Object.keys(performerUpdates).length > 0) {
+          const performerRef = doc(db, "performers", user.uid);
+          await setDoc(performerRef, performerUpdates, { merge: true });
+          console.log("✅ Performer record synced");
+        }
+      }
+      
+      console.log("✅ Profile updated successfully");
     } catch (error: any) {
       console.error("Error updating profile:", error);
       

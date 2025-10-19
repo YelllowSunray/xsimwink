@@ -50,7 +50,7 @@ export default function RatingModal({
         <div className="text-center mb-6">
           <div className="w-16 h-16 bg-gradient-to-br from-pink-500 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-4">
             <span className="text-white text-2xl font-bold">
-              {partnerName[0].toUpperCase()}
+              {partnerName?.[0]?.toUpperCase() || 'P'}
             </span>
           </div>
           <h2 className="text-2xl font-bold text-white mb-2">Rate your session</h2>

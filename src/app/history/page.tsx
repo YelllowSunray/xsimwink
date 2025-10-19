@@ -177,7 +177,7 @@ export default function HistoryPage() {
                 className="flex items-center gap-2 text-white hover:text-pink-400 transition"
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-sm font-bold">
-                  {userProfile?.displayName[0].toUpperCase() || 'U'}
+                  {userProfile?.displayName?.[0]?.toUpperCase() || 'U'}
                 </div>
                 <span className="hidden md:block">{userProfile?.displayName || 'User'}</span>
               </a>
@@ -231,7 +231,7 @@ export default function HistoryPage() {
                         />
                       ) : (
                         <div className="w-12 h-12 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-white text-lg font-bold border-2 border-pink-500/30">
-                          {session.partnerUsername[0].toUpperCase()}
+                          {session.partnerUsername?.[0]?.toUpperCase() || 'U'}
                         </div>
                       );
                     })()}

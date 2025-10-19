@@ -127,7 +127,7 @@ export default function FavoritesPage() {
                 className="flex items-center gap-2 text-white hover:text-pink-400 transition"
               >
                 <div className="w-8 h-8 rounded-full bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center text-sm font-bold">
-                  {userProfile?.displayName[0].toUpperCase() || 'U'}
+                  {userProfile?.displayName?.[0]?.toUpperCase() || 'U'}
                 </div>
                 <span className="hidden md:block">{userProfile?.displayName || 'User'}</span>
               </a>
