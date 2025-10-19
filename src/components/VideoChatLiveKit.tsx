@@ -2396,9 +2396,9 @@ function CustomVideoUI({
         </div>
       )}
 
-      {/* Radio Player - Positioned at bottom left */}
+      {/* Radio Player - Positioned above bottom controls on mobile */}
       {showRadioPanel && (
-        <div className="fixed bottom-4 left-4 z-40 max-w-md">
+        <div className="fixed bottom-24 md:bottom-4 left-4 z-40 max-w-md w-[calc(100vw-2rem)] md:w-auto">
           <RadioPlayer 
             listenTogether={listenTogetherEnabled}
             onStationChange={handleStationChange}
