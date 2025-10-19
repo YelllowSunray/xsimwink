@@ -254,6 +254,11 @@ export default function Home() {
       // Listen for call acceptance
       const unsubscribe = CallService.listenForCallAcceptance(user!.uid, performer.id, (accepted) => {
         if (accepted) {
+          // Mark self as busy when call is accepted
+          PresenceService.setBusyStatus(user!.uid, true).catch(err => 
+            console.error('Failed to set busy status:', err)
+          );
+          
           setActiveCall({ 
             id: performer.id, 
             name: performer.displayName,
@@ -282,6 +287,15 @@ export default function Home() {
     if (!incomingCall) return;
     await CallService.acceptCall(incomingCall.callId);
     
+    // Mark self as busy
+    if (user) {
+      try {
+        await PresenceService.setBusyStatus(user.uid, true);
+      } catch (err) {
+        console.error('Failed to set busy status:', err);
+      }
+    }
+    
     if (incomingCall.isGroupCall) {
       // For group calls, use the roomId as the identifier
       // participants array already includes everyone (caller + invitees)
@@ -305,6 +319,13 @@ export default function Home() {
   };
 
   const handleEndCall = () => {
+    // Mark self as available again
+    if (user) {
+      PresenceService.setBusyStatus(user.uid, false).catch(err =>
+        console.error('Failed to clear busy status:', err)
+      );
+    }
+    
     if (activeCall) {
       // Show rating modal after call ends
       setRatingModal({

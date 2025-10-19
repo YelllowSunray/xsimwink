@@ -116,7 +116,9 @@ export class PerformerService {
         favoriteCount: data?.stats?.favoriteCount ?? 0,
       },
       availability: {
-        isAvailable: data?.availability?.isAvailable && isActuallyOnline, // Must be both available AND have fresh heartbeat
+        // If heartbeat is fresh, user is available (unless explicitly marked as busy with busyUntil)
+        // This prevents old data from showing performers as permanently busy
+        isAvailable: isActuallyOnline && (busyUntil ? new Date() > busyUntil : true),
         busyUntil: busyUntil,
         timezone: data?.availability?.timezone ?? "UTC",
       },

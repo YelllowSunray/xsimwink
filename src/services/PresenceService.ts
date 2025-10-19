@@ -53,6 +53,20 @@ export class PresenceService {
     );
   }
 
+  // Set busy status (e.g., when in a call)
+  static async setBusyStatus(userId: string, isBusy: boolean, busyUntil?: Date): Promise<void> {
+    const performerRef = doc(db, 'performers', userId);
+    await setDoc(
+      performerRef,
+      {
+        'availability.isAvailable': !isBusy,
+        'availability.busyUntil': isBusy && busyUntil ? busyUntil : null,
+        lastSeen: serverTimestamp(),
+      },
+      { merge: true }
+    );
+  }
+
   // Heartbeat presence update – returns a stop function
   static startHeartbeat(userId: string, intervalMs: number = 15000): () => void {
     let stopped = false;
