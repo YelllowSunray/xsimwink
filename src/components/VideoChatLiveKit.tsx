@@ -55,6 +55,7 @@ import {
   useDataChannel,
 } from "@livekit/components-react";
 import { Track, DataPacket_Kind } from "livekit-client";
+import { BackgroundBlur } from "@livekit/track-processors";
 import { VideoStorageService } from "@/utils/videoStorage";
 import { radioStations, type RadioStation } from "@/constants/radioStations";
 import RadioPlayer from "@/components/RadioPlayer";
@@ -1582,6 +1583,7 @@ function CustomVideoUI({
   const tracks = useTracks([
     { source: Track.Source.Camera, withPlaceholder: true },
     { source: Track.Source.Microphone, withPlaceholder: false },
+    { source: Track.Source.ScreenShare, withPlaceholder: false },
   ]);
   const room = useRoomContext();
   
@@ -1596,6 +1598,37 @@ function CustomVideoUI({
   // Radio player state (for syncing between users)
   const [remoteStationId, setRemoteStationId] = React.useState<string | null>(null);
   const [showRadioPanel, setShowRadioPanel] = React.useState(false);
+  
+  // Screen sharing state
+  const [isSharingScreen, setIsSharingScreen] = React.useState(false);
+  const screenTrackRef = React.useRef<MediaStreamTrack | null>(null);
+  
+  // Chat state
+  const [showChat, setShowChat] = React.useState(false);
+  const [chatMessages, setChatMessages] = React.useState<Array<{sender: string, message: string, timestamp: number}>>([]);
+  const [chatInput, setChatInput] = React.useState('');
+  
+  // Mute state
+  const [isAudioMuted, setIsAudioMuted] = React.useState(false);
+  const [isVideoMuted, setIsVideoMuted] = React.useState(false);
+  
+  // Device selector state
+  const [showDeviceSelector, setShowDeviceSelector] = React.useState(false);
+  const [availableDevices, setAvailableDevices] = React.useState<MediaDeviceInfo[]>([]);
+  const [selectedCamera, setSelectedCamera] = React.useState<string>('');
+  const [selectedMicrophone, setSelectedMicrophone] = React.useState<string>('');
+  
+  // Transcription state
+  const [showTranscription, setShowTranscription] = React.useState(false);
+  const [transcriptionText, setTranscriptionText] = React.useState<string>('');
+  const recognitionRef = React.useRef<any>(null);
+  
+  // Background blur state
+  const [isBackgroundBlurred, setIsBackgroundBlurred] = React.useState(false);
+  const backgroundProcessorRef = React.useRef<any>(null);
+  
+  // More options menu state
+  const [showMoreMenu, setShowMoreMenu] = React.useState(false);
   
   // Listen for radio control from other users
   // Radio is ALWAYS synced - both users listen to the same station
@@ -1628,6 +1661,22 @@ function CustomVideoUI({
     });
   };
   
+  // Listen for chat messages from other users
+  useDataChannel('chat', (message) => {
+    try {
+      const data = JSON.parse(new TextDecoder().decode(message.payload));
+      console.log('💬 Chat message received:', data);
+      
+      setChatMessages(prev => [...prev, {
+        sender: data.sender || partnerName,
+        message: data.message,
+        timestamp: data.timestamp || Date.now()
+      }]);
+    } catch (error) {
+      console.error('Error parsing chat message:', error);
+    }
+  });
+  
   // Handler to apply audio effects (ensures it's called properly)
   const handleAudioEffectChange = (effect: typeof audioEffect) => {
     console.log(`🎵 Changing audio effect to: ${effect}`);
@@ -1638,6 +1687,295 @@ function CustomVideoUI({
   const handleVisualEffectChange = (effect: typeof visualEffect) => {
     console.log(`🎨 Changing visual effect to: ${effect}`);
     setVisualEffect(effect); // This updates state which triggers useEffect
+  };
+  
+  // Screen Share Handler
+  const toggleScreenShare = async () => {
+    if (!room || room.state !== 'connected') return;
+    
+    try {
+      if (isSharingScreen) {
+        // Stop screen sharing
+        console.log('🛑 Stopping screen share...');
+        
+        const screenPublication = room.localParticipant.getTrackPublication(Track.Source.ScreenShare);
+        if (screenPublication && screenPublication.track) {
+          await room.localParticipant.unpublishTrack(screenPublication.track);
+        }
+        
+        if (screenTrackRef.current) {
+          screenTrackRef.current.stop();
+          screenTrackRef.current = null;
+        }
+        
+        setIsSharingScreen(false);
+        console.log('✅ Screen share stopped');
+      } else {
+        // Start screen sharing
+        console.log('🖥️ Starting screen share...');
+        
+        const screenStream = await navigator.mediaDevices.getDisplayMedia({
+          video: {
+            width: { ideal: 1920 },
+            height: { ideal: 1080 },
+            frameRate: { ideal: 30 }
+          },
+          audio: false
+        });
+        
+        const screenTrack = screenStream.getVideoTracks()[0];
+        screenTrackRef.current = screenTrack;
+        
+        screenTrack.onended = () => {
+          console.log('🛑 Screen share ended by user');
+          setIsSharingScreen(false);
+          screenTrackRef.current = null;
+        };
+        
+        await room.localParticipant.publishTrack(screenTrack, {
+          source: Track.Source.ScreenShare,
+          simulcast: false,
+        });
+        
+        setIsSharingScreen(true);
+        console.log('✅ Screen share started');
+      }
+    } catch (error: any) {
+      console.error('❌ Screen share error:', error);
+      if (error.name === 'NotAllowedError') {
+        alert('Screen sharing permission denied');
+      }
+    }
+  };
+  
+  // Chat Handler
+  const sendChatMessage = () => {
+    if (!chatInput.trim() || !room) return;
+    
+    const messageData = {
+      sender: 'You',
+      message: chatInput,
+      timestamp: Date.now()
+    };
+    
+    // Add to local messages
+    setChatMessages(prev => [...prev, messageData]);
+    
+    // Broadcast to other users
+    const data = new TextEncoder().encode(JSON.stringify(messageData));
+    room.localParticipant?.publishData(data, {
+      reliable: true,
+      topic: 'chat'
+    });
+    
+    setChatInput('');
+  };
+  
+  // Mute/Unmute Handlers
+  const toggleAudioMute = async () => {
+    if (!room) return;
+    
+    try {
+      const audioPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+      if (audioPublication) {
+        if (isAudioMuted) {
+          await audioPublication.track?.unmute();
+        } else {
+          await audioPublication.track?.mute();
+        }
+        setIsAudioMuted(!isAudioMuted);
+      }
+    } catch (error) {
+      console.error('Error toggling audio:', error);
+    }
+  };
+  
+  const toggleVideoMute = async () => {
+    if (!room) return;
+    
+    try {
+      const videoPublication = room.localParticipant.getTrackPublication(Track.Source.Camera);
+      if (videoPublication) {
+        if (isVideoMuted) {
+          await videoPublication.track?.unmute();
+        } else {
+          await videoPublication.track?.mute();
+        }
+        setIsVideoMuted(!isVideoMuted);
+      }
+    } catch (error) {
+      console.error('Error toggling video:', error);
+    }
+  };
+  
+  // Device Selection Handler
+  const loadDevices = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      setAvailableDevices(devices);
+      
+      // Set current devices
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTrack = stream.getAudioTracks()[0];
+      
+      setSelectedCamera(videoTrack.getSettings().deviceId || '');
+      setSelectedMicrophone(audioTrack.getSettings().deviceId || '');
+      
+      stream.getTracks().forEach(track => track.stop());
+    } catch (error) {
+      console.error('Error loading devices:', error);
+    }
+  };
+  
+  const switchCamera = async (deviceId: string) => {
+    if (!room) return;
+    
+    try {
+      const videoPublication = room.localParticipant.getTrackPublication(Track.Source.Camera);
+      if (videoPublication && videoPublication.track) {
+        await videoPublication.track.stop();
+        await room.localParticipant.unpublishTrack(videoPublication.track);
+      }
+      
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: deviceId }, width: 1280, height: 720 },
+        audio: false
+      });
+      
+      const newVideoTrack = stream.getVideoTracks()[0];
+      await room.localParticipant.publishTrack(newVideoTrack, {
+        source: Track.Source.Camera,
+        simulcast: true,
+      });
+      
+      setSelectedCamera(deviceId);
+      console.log('✅ Camera switched');
+    } catch (error) {
+      console.error('Error switching camera:', error);
+    }
+  };
+  
+  const switchMicrophone = async (deviceId: string) => {
+    if (!room) return;
+    
+    try {
+      const audioPublication = room.localParticipant.getTrackPublication(Track.Source.Microphone);
+      if (audioPublication && audioPublication.track) {
+        await audioPublication.track.stop();
+        await room.localParticipant.unpublishTrack(audioPublication.track);
+      }
+      
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: false,
+        audio: { 
+          deviceId: { exact: deviceId },
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+      
+      const newAudioTrack = stream.getAudioTracks()[0];
+      await room.localParticipant.publishTrack(newAudioTrack, {
+        source: Track.Source.Microphone,
+      });
+      
+      setSelectedMicrophone(deviceId);
+      console.log('✅ Microphone switched');
+    } catch (error) {
+      console.error('Error switching microphone:', error);
+    }
+  };
+  
+  // Transcription Handler
+  const toggleTranscription = () => {
+    if (showTranscription) {
+      // Stop transcription
+      if (recognitionRef.current) {
+        recognitionRef.current.stop();
+        recognitionRef.current = null;
+      }
+      setShowTranscription(false);
+      setTranscriptionText('');
+    } else {
+      // Start transcription
+      try {
+        const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+          alert('Speech recognition not supported in this browser');
+          return;
+        }
+        
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        
+        recognition.onresult = (event: any) => {
+          let interimTranscript = '';
+          let finalTranscript = '';
+          
+          for (let i = event.resultIndex; i < event.results.length; i++) {
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              finalTranscript += transcript + ' ';
+            } else {
+              interimTranscript += transcript;
+            }
+          }
+          
+          setTranscriptionText(finalTranscript + interimTranscript);
+        };
+        
+        recognition.start();
+        recognitionRef.current = recognition;
+        setShowTranscription(true);
+        console.log('✅ Transcription started');
+      } catch (error) {
+        console.error('Error starting transcription:', error);
+        alert('Failed to start transcription');
+      }
+    }
+  };
+  
+  // Background Blur Handler
+  const toggleBackgroundBlur = async () => {
+    if (!room) return;
+    
+    try {
+      const videoPublication = room.localParticipant.getTrackPublication(Track.Source.Camera);
+      if (!videoPublication || !videoPublication.track) {
+        console.error('No video track found');
+        return;
+      }
+      
+      if (isBackgroundBlurred) {
+        // Disable background blur
+        console.log('🚫 Disabling background blur...');
+        
+        if (backgroundProcessorRef.current) {
+          await videoPublication.track.stopProcessor();
+          backgroundProcessorRef.current = null;
+        }
+        
+        setIsBackgroundBlurred(false);
+        console.log('✅ Background blur disabled');
+      } else {
+        // Enable background blur
+        console.log('🌫️ Enabling background blur...');
+        
+        const processor = BackgroundBlur(20); // 20px blur radius
+        backgroundProcessorRef.current = processor;
+        
+        await videoPublication.track.setProcessor(processor);
+        
+        setIsBackgroundBlurred(true);
+        console.log('✅ Background blur enabled');
+      }
+    } catch (error) {
+      console.error('❌ Background blur error:', error);
+      alert('Failed to apply background effect. Make sure you have a camera enabled.');
+    }
   };
   
   // Publish camera and microphone when room connects
@@ -1657,10 +1995,14 @@ function CustomVideoUI({
         
         console.log('📹 Publishing camera and microphone...');
         
-        // Get raw camera and mic
+        // Get raw camera and mic with noise suppression enabled
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { width: 1280, height: 720 },
-          audio: true
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
         });
         
         // Publish video
@@ -2113,55 +2455,70 @@ function CustomVideoUI({
           Recording Controls
         </div>
         <div className="max-w-4xl mx-auto flex items-center justify-center gap-3 md:gap-4 h-full">
-          {/* Recording Button - Made more prominent on mobile */}
-          {!isRecording ? (
-            <button
-              onClick={() => setShowRecordingSettings(true)}
-              className="p-4 md:p-4 rounded-full bg-gray-600 hover:bg-gray-700 active:bg-gray-800 transition-all duration-200 touch-target min-w-[56px] min-h-[56px] flex items-center justify-center"
-              title="Start recording"
-            >
-              <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
-              </svg>
-            </button>
-          ) : (
-            <button
-              onClick={stopRecording}
-              className="p-4 md:p-4 rounded-full bg-red-600 hover:bg-red-700 active:bg-red-800 transition-all duration-200 animate-pulse touch-target min-w-[56px] min-h-[56px] flex items-center justify-center"
-              title="Stop recording"
-            >
-              <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
-              </svg>
-            </button>
-          )}
-
-          {/* Radio Button */}
+          {/* Mute/Unmute Audio Button */}
           <button
-            onClick={() => setShowRadioPanel(!showRadioPanel)}
-            className={`p-4 md:p-4 rounded-full ${
-              showRadioPanel ? 'bg-pink-600' : 'bg-gray-600'
-            } hover:bg-pink-700 active:bg-pink-800 transition-all duration-200 touch-target min-w-[56px] min-h-[56px] flex items-center justify-center relative`}
-            title="Radio"
+            onClick={toggleAudioMute}
+            className={`p-4 md:p-4 rounded-full ${isAudioMuted ? 'bg-red-600' : 'bg-gray-700/90'} hover:bg-gray-600 active:bg-gray-800 transition-all duration-200 touch-target min-w-[56px] min-h-[56px] flex items-center justify-center shadow-lg`}
+            title={isAudioMuted ? 'Unmute microphone' : 'Mute microphone'}
           >
-            <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-              <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
-              <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
-            </svg>
+            {isAudioMuted ? (
+              <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M13.477 14.89A6 6 0 015.11 6.524l8.367 8.368zm1.414-1.414L6.524 5.11a6 6 0 018.367 8.367zM18 10a8 8 0 11-16 0 8 8 0 0116 0z" clipRule="evenodd" />
+              </svg>
+            ) : (
+              <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M7 4a3 3 0 016 0v4a3 3 0 11-6 0V4zm4 10.93A7.001 7.001 0 0017 8a1 1 0 10-2 0A5 5 0 015 8a1 1 0 00-2 0 7.001 7.001 0 006 6.93V17H6a1 1 0 100 2h8a1 1 0 100-2h-3v-2.07z" clipRule="evenodd" />
+              </svg>
+            )}
           </button>
 
-          {/* Effects Button - Desktop Only */}
-          {!isMobile && (
-            <button
-              onClick={() => setShowEffectsPanel(!showEffectsPanel)}
-              className={`p-4 md:p-4 rounded-full ${showEffectsPanel ? 'bg-purple-600' : 'bg-gray-600'} hover:bg-purple-700 active:bg-purple-800 transition-all duration-200 flex items-center justify-center touch-target min-w-[56px] min-h-[56px]`}
-              title="Effects (Desktop Only)"
-            >
+          {/* Mute/Unmute Video Button */}
+          <button
+            onClick={toggleVideoMute}
+            className={`p-4 md:p-4 rounded-full ${isVideoMuted ? 'bg-red-600' : 'bg-gray-700/90'} hover:bg-gray-600 active:bg-gray-800 transition-all duration-200 touch-target min-w-[56px] min-h-[56px] flex items-center justify-center shadow-lg`}
+            title={isVideoMuted ? 'Turn on camera' : 'Turn off camera'}
+          >
+            {isVideoMuted ? (
               <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
-                <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
+                <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+                <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.065 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
               </svg>
-            </button>
-          )}
+            ) : (
+              <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M2 6a2 2 0 012-2h6a2 2 0 012 2v8a2 2 0 01-2 2H4a2 2 0 01-2-2V6zM14.553 7.106A1 1 0 0014 8v4a1 1 0 00.553.894l2 1A1 1 0 0018 13V7a1 1 0 00-1.447-.894l-2 1z" />
+              </svg>
+            )}
+          </button>
+
+          {/* Chat Button */}
+          <button
+            onClick={() => setShowChat(!showChat)}
+            className={`p-4 md:p-4 rounded-full ${showChat ? 'bg-green-600' : 'bg-gray-700/90'} hover:bg-green-700 active:bg-green-800 transition-all duration-200 touch-target min-w-[56px] min-h-[56px] flex items-center justify-center relative shadow-lg`}
+            title="Chat"
+          >
+            <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path fillRule="evenodd" d="M18 10c0 3.866-3.582 7-8 7a8.841 8.841 0 01-4.083-.98L2 17l1.338-3.123C2.493 12.767 2 11.434 2 10c0-3.866 3.582-7 8-7s8 3.134 8 7zM7 9H5v2h2V9zm8 0h-2v2h2V9zM9 9h2v2H9V9z" clipRule="evenodd" />
+            </svg>
+            {chatMessages.length > 0 && !showChat && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center font-bold">
+                {chatMessages.length}
+              </span>
+            )}
+          </button>
+
+          {/* More Options Button */}
+          <button
+            onClick={() => setShowMoreMenu(!showMoreMenu)}
+            className={`p-4 md:p-4 rounded-full ${showMoreMenu ? 'bg-purple-600' : 'bg-gray-700/90'} hover:bg-purple-700 active:bg-purple-800 transition-all duration-200 touch-target min-w-[56px] min-h-[56px] flex items-center justify-center shadow-lg relative`}
+            title="More options"
+          >
+            <svg className="w-6 h-6 md:w-6 md:h-6 text-white" fill="currentColor" viewBox="0 0 20 20">
+              <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+            </svg>
+            {(isSharingScreen || isBackgroundBlurred || showTranscription || isRecording) && (
+              <span className="absolute -top-1 -right-1 bg-blue-500 w-3 h-3 rounded-full"></span>
+            )}
+          </button>
 
           {/* End Call Button - Made more prominent on mobile */}
           <button
@@ -2406,6 +2763,274 @@ function CustomVideoUI({
             onStationChange={handleStationChange}
             remoteStation={remoteStationId}
           />
+        </div>
+      )}
+
+      {/* More Options Menu */}
+      {showMoreMenu && (
+        <div className="fixed bottom-32 md:bottom-24 right-4 z-40 w-80 bg-gradient-to-br from-black/95 to-gray-900/95 backdrop-blur-sm border border-purple-500/30 rounded-xl shadow-2xl">
+          <div className="p-4 border-b border-purple-500/30">
+            <h3 className="text-white font-bold text-lg">More Options</h3>
+          </div>
+          <div className="p-2 space-y-1">
+            {/* Screen Share Option */}
+            <button
+              onClick={() => {
+                toggleScreenShare();
+                setShowMoreMenu(false);
+              }}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg ${isSharingScreen ? 'bg-blue-600/20 border border-blue-500/50' : 'bg-gray-800/50 hover:bg-gray-700/50'} transition-all`}
+            >
+              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M3 5a2 2 0 012-2h10a2 2 0 012 2v8a2 2 0 01-2 2h-2.22l.123.489.804.804A1 1 0 0113 18H7a1 1 0 01-.707-1.707l.804-.804L7.22 15H5a2 2 0 01-2-2V5zm5.771 7H5V5h10v7H8.771z" clipRule="evenodd" />
+              </svg>
+              <div className="flex-1 text-left">
+                <div className="text-white font-medium">{isSharingScreen ? 'Stop' : 'Share'} Screen</div>
+                <div className="text-gray-400 text-xs">Share your screen or window</div>
+              </div>
+              {isSharingScreen && <span className="text-xs bg-blue-500 text-white px-2 py-1 rounded">Active</span>}
+            </button>
+
+            {/* Recording Option */}
+            {!isRecording ? (
+              <button
+                onClick={() => {
+                  setShowRecordingSettings(true);
+                  setShowMoreMenu(false);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg bg-gray-800/50 hover:bg-gray-700/50 transition-all"
+              >
+                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM9.555 7.168A1 1 0 008 8v4a1 1 0 001.555.832l3-2a1 1 0 000-1.664l-3-2z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1 text-left">
+                  <div className="text-white font-medium">Start Recording</div>
+                  <div className="text-gray-400 text-xs">Record this call</div>
+                </div>
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  stopRecording();
+                  setShowMoreMenu(false);
+                }}
+                className="w-full flex items-center gap-3 p-3 rounded-lg bg-red-600/20 border border-red-500/50 transition-all animate-pulse"
+              >
+                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8 7a1 1 0 00-1 1v4a1 1 0 001 1h4a1 1 0 001-1V8a1 1 0 00-1-1H8z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1 text-left">
+                  <div className="text-white font-medium">Stop Recording</div>
+                  <div className="text-gray-400 text-xs">End recording session</div>
+                </div>
+                <span className="text-xs bg-red-500 text-white px-2 py-1 rounded">REC</span>
+              </button>
+            )}
+
+            {/* Radio Option */}
+            <button
+              onClick={() => {
+                setShowRadioPanel(!showRadioPanel);
+                setShowMoreMenu(false);
+              }}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg ${showRadioPanel ? 'bg-pink-600/20 border border-pink-500/50' : 'bg-gray-800/50 hover:bg-gray-700/50'} transition-all`}
+            >
+              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M2 5a2 2 0 012-2h7a2 2 0 012 2v4a2 2 0 01-2 2H9l-3 3v-3H4a2 2 0 01-2-2V5z" />
+                <path d="M15 7v2a4 4 0 01-4 4H9.828l-1.766 1.767c.28.149.599.233.938.233h2l3 3v-3h2a2 2 0 002-2V9a2 2 0 00-2-2h-1z" />
+              </svg>
+              <div className="flex-1 text-left">
+                <div className="text-white font-medium">Radio Player</div>
+                <div className="text-gray-400 text-xs">Listen together</div>
+              </div>
+              {showRadioPanel && <span className="text-xs bg-pink-500 text-white px-2 py-1 rounded">Open</span>}
+            </button>
+
+            {/* Effects Option - Desktop Only */}
+            {!isMobile && (
+              <button
+                onClick={() => {
+                  setShowEffectsPanel(!showEffectsPanel);
+                  setShowMoreMenu(false);
+                }}
+                className={`w-full flex items-center gap-3 p-3 rounded-lg ${showEffectsPanel ? 'bg-purple-600/20 border border-purple-500/50' : 'bg-gray-800/50 hover:bg-gray-700/50'} transition-all`}
+              >
+                <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M12.395 2.553a1 1 0 00-1.45-.385c-.345.23-.614.558-.822.88-.214.33-.403.713-.57 1.116-.334.804-.614 1.768-.84 2.734a31.365 31.365 0 00-.613 3.58 2.64 2.64 0 01-.945-1.067c-.328-.68-.398-1.534-.398-2.654A1 1 0 005.05 6.05 6.981 6.981 0 003 11a7 7 0 1011.95-4.95c-.592-.591-.98-.985-1.348-1.467-.363-.476-.724-1.063-1.207-2.03zM12.12 15.12A3 3 0 017 13s.879.5 2.5.5c0-1 .5-4 1.25-4.5.5 1 .786 1.293 1.371 1.879A2.99 2.99 0 0113 13a2.99 2.99 0 01-.879 2.121z" clipRule="evenodd" />
+                </svg>
+                <div className="flex-1 text-left">
+                  <div className="text-white font-medium">Effects</div>
+                  <div className="text-gray-400 text-xs">Audio & visual effects</div>
+                </div>
+                {showEffectsPanel && <span className="text-xs bg-purple-500 text-white px-2 py-1 rounded">Open</span>}
+              </button>
+            )}
+
+            {/* Background Blur Option */}
+            <button
+              onClick={() => {
+                toggleBackgroundBlur();
+                setShowMoreMenu(false);
+              }}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg ${isBackgroundBlurred ? 'bg-teal-600/20 border border-teal-500/50' : 'bg-gray-800/50 hover:bg-gray-700/50'} transition-all`}
+            >
+              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4 3a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V5a2 2 0 00-2-2H4zm12 12H4l4-8 3 6 2-4 3 6z" clipRule="evenodd" />
+              </svg>
+              <div className="flex-1 text-left">
+                <div className="text-white font-medium">Background Blur</div>
+                <div className="text-gray-400 text-xs">Blur your background</div>
+              </div>
+              {isBackgroundBlurred && <span className="text-xs bg-teal-500 text-white px-2 py-1 rounded">On</span>}
+            </button>
+
+            {/* Transcription Option */}
+            <button
+              onClick={() => {
+                toggleTranscription();
+                setShowMoreMenu(false);
+              }}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg ${showTranscription ? 'bg-indigo-600/20 border border-indigo-500/50' : 'bg-gray-800/50 hover:bg-gray-700/50'} transition-all`}
+            >
+              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 13V5a2 2 0 00-2-2H4a2 2 0 00-2 2v8a2 2 0 002 2h3l3 3 3-3h3a2 2 0 002-2zM5 7a1 1 0 011-1h8a1 1 0 110 2H6a1 1 0 01-1-1zm1 3a1 1 0 100 2h3a1 1 0 100-2H6z" clipRule="evenodd" />
+              </svg>
+              <div className="flex-1 text-left">
+                <div className="text-white font-medium">Live Captions</div>
+                <div className="text-gray-400 text-xs">Real-time transcription</div>
+              </div>
+              {showTranscription && <span className="text-xs bg-indigo-500 text-white px-2 py-1 rounded">On</span>}
+            </button>
+
+            {/* Device Settings Option */}
+            <button
+              onClick={() => {
+                setShowDeviceSelector(!showDeviceSelector);
+                if (!showDeviceSelector) loadDevices();
+                setShowMoreMenu(false);
+              }}
+              className={`w-full flex items-center gap-3 p-3 rounded-lg ${showDeviceSelector ? 'bg-yellow-600/20 border border-yellow-500/50' : 'bg-gray-800/50 hover:bg-gray-700/50'} transition-all`}
+            >
+              <svg className="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M11.49 3.17c-.38-1.56-2.6-1.56-2.98 0a1.532 1.532 0 01-2.286.948c-1.372-.836-2.942.734-2.106 2.106.54.886.061 2.042-.947 2.287-1.561.379-1.561 2.6 0 2.978a1.532 1.532 0 01.947 2.287c-.836 1.372.734 2.942 2.106 2.106a1.532 1.532 0 012.287.947c.379 1.561 2.6 1.561 2.978 0a1.533 1.533 0 012.287-.947c1.372.836 2.942-.734 2.106-2.106a1.533 1.533 0 01.947-2.287c1.561-.379 1.561-2.6 0-2.978a1.532 1.532 0 01-.947-2.287c.836-1.372-.734-2.942-2.106-2.106a1.532 1.532 0 01-2.287-.947zM10 13a3 3 0 100-6 3 3 0 000 6z" clipRule="evenodd" />
+              </svg>
+              <div className="flex-1 text-left">
+                <div className="text-white font-medium">Device Settings</div>
+                <div className="text-gray-400 text-xs">Camera & microphone</div>
+              </div>
+              {showDeviceSelector && <span className="text-xs bg-yellow-500 text-white px-2 py-1 rounded">Open</span>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Chat Panel */}
+      {showChat && (
+        <div className="fixed bottom-24 md:bottom-4 right-4 z-40 w-80 max-h-96 bg-gradient-to-br from-black/95 to-gray-900/95 backdrop-blur-sm border border-green-500/30 rounded-xl shadow-2xl flex flex-col">
+          <div className="p-4 border-b border-green-500/30 flex items-center justify-between">
+            <h3 className="text-white font-bold">Chat</h3>
+            <button
+              onClick={() => setShowChat(false)}
+              className="text-gray-400 hover:text-white"
+            >
+              <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+            {chatMessages.map((msg, idx) => (
+              <div key={idx} className={`${msg.sender === 'You' ? 'text-right' : 'text-left'}`}>
+                <div className={`inline-block px-3 py-2 rounded-lg ${msg.sender === 'You' ? 'bg-green-600 text-white' : 'bg-gray-700 text-white'}`}>
+                  <div className="text-xs opacity-75 mb-1">{msg.sender}</div>
+                  <div>{msg.message}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="p-4 border-t border-green-500/30 flex gap-2">
+            <input
+              type="text"
+              value={chatInput}
+              onChange={(e) => setChatInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && sendChatMessage()}
+              placeholder="Type a message..."
+              className="flex-1 bg-gray-800 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+            <button
+              onClick={sendChatMessage}
+              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg"
+            >
+              Send
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Device Selector Panel */}
+      {showDeviceSelector && (
+        <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-96 bg-gradient-to-br from-black/95 to-gray-900/95 backdrop-blur-sm border border-yellow-500/30 rounded-xl shadow-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-white font-bold text-lg">Device Settings</h3>
+            <button
+              onClick={() => setShowDeviceSelector(false)}
+              className="text-gray-400 hover:text-white"
+            >
+              <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M4.293 4.293a1 1 0 011.414 0L10 8.586l4.293-4.293a1 1 0 111.414 1.414L11.414 10l4.293 4.293a1 1 0 01-1.414 1.414L10 11.414l-4.293 4.293a1 1 0 01-1.414-1.414L8.586 10 4.293 5.707a1 1 0 010-1.414z" clipRule="evenodd" />
+              </svg>
+            </button>
+          </div>
+          
+          <div className="space-y-4">
+            <div>
+              <label className="block text-white text-sm font-medium mb-2">Camera</label>
+              <select
+                value={selectedCamera}
+                onChange={(e) => switchCamera(e.target.value)}
+                className="w-full bg-gray-800 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+              >
+                {availableDevices.filter(d => d.kind === 'videoinput').map(device => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Camera ${device.deviceId.slice(0, 5)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div>
+              <label className="block text-white text-sm font-medium mb-2">Microphone</label>
+              <select
+                value={selectedMicrophone}
+                onChange={(e) => switchMicrophone(e.target.value)}
+                className="w-full bg-gray-800 text-white px-3 py-2 rounded-lg focus:outline-none focus:ring-2 focus:ring-yellow-500"
+              >
+                {availableDevices.filter(d => d.kind === 'audioinput').map(device => (
+                  <option key={device.deviceId} value={device.deviceId}>
+                    {device.label || `Microphone ${device.deviceId.slice(0, 5)}`}
+                  </option>
+                ))}
+              </select>
+            </div>
+            
+            <div className="pt-4 border-t border-gray-700">
+              <p className="text-gray-400 text-sm">
+                ✅ Noise suppression enabled<br />
+                ✅ Echo cancellation enabled<br />
+                ✅ Auto gain control enabled
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Transcription Overlay */}
+      {showTranscription && transcriptionText && (
+        <div className="fixed bottom-32 md:bottom-24 left-1/2 transform -translate-x-1/2 z-40 max-w-2xl w-[calc(100vw-2rem)] bg-black/80 backdrop-blur-sm text-white px-6 py-3 rounded-xl border border-indigo-500/30">
+          <div className="text-center">
+            <span className="text-indigo-400 text-xs font-bold mr-2">LIVE CAPTIONS</span>
+            <span className="text-lg">{transcriptionText}</span>
+          </div>
         </div>
       )}
     </div>
