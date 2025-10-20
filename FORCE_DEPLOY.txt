@@ -1,0 +1,9 @@
+Run these commands in your terminal:
+
+1. git commit --allow-empty -m "force: trigger new Vercel deployment"
+2. git push origin main
+
+This will force Vercel to rebuild everything fresh.
+
+Then wait 3-5 minutes and check your Vercel URL again.
+

@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/contexts/AuthContext";
+import ConsoleFilterInit from "@/components/ConsoleFilterInit";
 // import FirebaseDebugger from "@/components/FirebaseDebugger";
 // import AuthDebugger from "@/components/AuthDebugger";
 
@@ -35,6 +36,7 @@ export default function RootLayout({
           <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
         </head>
         <AuthProvider>
+          <ConsoleFilterInit />
           {children}
           {/* <AuthDebugger /> */}
           {/* <FirebaseDebugger /> */}
