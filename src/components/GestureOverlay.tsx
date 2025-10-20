@@ -6,7 +6,7 @@ import { FaceLandmarker, HandLandmarker, FilesetResolver } from "@mediapipe/task
 interface GestureAnimation {
   id: string;
   type: 'wink' | 'tongue' | 'kiss' | 'vTongue' | 'peace' | 'thumbsUp' | 'okSign' | 'rockOn';
-  side?: 'left' | 'right';
+  side?: 'left' | 'right' | undefined;
   timestamp: number;
   emoji: string;
 }
@@ -220,7 +220,7 @@ export default function GestureOverlay({
       return indexExtended && middleExtended && ringClosed && pinkyClosed && hasVShape;
     };
 
-    const addGestureAnimation = (type: GestureAnimation['type'], emoji: string, side?: 'left' | 'right') => {
+    const addGestureAnimation = (type: GestureAnimation['type'], emoji: string, side?: 'left' | 'right' | undefined) => {
       const now = Date.now();
       const lastTime = lastGesturesRef.current[type] || 0;
       
@@ -307,7 +307,7 @@ export default function GestureOverlay({
             const timeSinceLastSent = currentTime - winkStateRef.current.lastSentWink;
             
             if (winkDuration >= 150 && winkDuration <= 800 && timeSinceLastSent > 800) {
-              addGestureAnimation('wink', '😉', winkStateRef.current.winkEye);
+              addGestureAnimation('wink', '😉', winkStateRef.current.winkEye || undefined);
               winkStateRef.current.lastSentWink = currentTime;
             }
             
