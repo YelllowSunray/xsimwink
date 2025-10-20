@@ -14,7 +14,7 @@ interface LiveKitEyeContactOverlayProps {
 
 interface GestureAnimation {
   id: string;
-  type: 'wink' | 'peace' | 'thumbsUp' | 'rockOn' | 'okSign';
+  type: 'wink' | 'tongue';
   side?: 'left' | 'right';
   timestamp: number;
   emoji: string;
@@ -43,6 +43,8 @@ export default function LiveKitEyeContactOverlay({
     remoteWinking,
     localWinkEye,
     remoteWinkEye,
+    localTongueOut,
+    remoteTongueOut,
   } = eyeContactState;
 
   const [localGestureAnimations, setLocalGestureAnimations] = useState<GestureAnimation[]>([]);
@@ -100,11 +102,19 @@ export default function LiveKitEyeContactOverlay({
       addGestureAnimation(true, 'wink', '😉', localWinkEye);
     }
     
+    if (localTongueOut) {
+      addGestureAnimation(true, 'tongue', '👅');
+    }
+    
     // Remote gestures
     if (remoteWinking && remoteWinkEye) {
       addGestureAnimation(false, 'wink', '😉', remoteWinkEye);
     }
-  }, [localWinking, localWinkEye, remoteWinking, remoteWinkEye]);
+    
+    if (remoteTongueOut) {
+      addGestureAnimation(false, 'tongue', '👅');
+    }
+  }, [localWinking, localWinkEye, localTongueOut, remoteWinking, remoteWinkEye, remoteTongueOut]);
 
   // Manual testing (kept for backward compatibility)
   useEffect(() => {
@@ -290,63 +300,40 @@ export default function LiveKitEyeContactOverlay({
       {/* Status Indicators (Top Bar) - ALWAYS VISIBLE */}
       <div className="absolute top-4 left-4 right-4 flex flex-col gap-2">
         <div className="flex justify-between items-start">
-          {/* Local gaze indicator */}
-          <div className="bg-black/60 backdrop-blur-sm rounded-lg px-4 py-2 border border-white/20">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-300">You:</span>
-              <div
-                className={`w-3 h-3 rounded-full transition-colors duration-300 ${
-                  localGaze?.isLooking ? "bg-green-400 shadow-green-glow" : "bg-gray-500"
-                }`}
-              />
-              {localGaze?.isLooking ? (
-                <span className="text-xs text-green-400 font-semibold">👁️ Looking</span>
-              ) : (
-                <span className="text-xs text-gray-400">Away</span>
-              )}
-            </div>
-          </div>
-
-          {/* Remote gaze indicator */}
-          <div className="bg-black/60 backdrop-blur-sm rounded-lg px-4 py-2 border border-white/20">
-            <div className="flex items-center gap-2">
-              <span className="text-xs text-gray-300">Them:</span>
-              <div
-                className={`w-3 h-3 rounded-full transition-colors duration-300 ${
-                  remoteGaze?.isLooking ? "bg-green-400 shadow-green-glow" : "bg-gray-500"
-                }`}
-              />
-              {remoteGaze?.isLooking ? (
-                <span className="text-xs text-green-400 font-semibold">👁️ Looking</span>
-              ) : (
-                <span className="text-xs text-gray-400">Away</span>
-              )}
-            </div>
+        {/* Local gaze indicator */}
+        <div className="bg-black/60 backdrop-blur-sm rounded-lg px-4 py-2 border border-white/20">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-300">You:</span>
+            <div
+              className={`w-3 h-3 rounded-full transition-colors duration-300 ${
+                localGaze?.isLooking ? "bg-green-400 shadow-green-glow" : "bg-gray-500"
+              }`}
+            />
+            {localGaze?.isLooking ? (
+              <span className="text-xs text-green-400 font-semibold">👁️ Looking</span>
+            ) : (
+              <span className="text-xs text-gray-400">Away</span>
+            )}
           </div>
         </div>
 
-        {/* REAL-TIME WINK MONITOR - ALWAYS VISIBLE */}
-        {localGaze && (
-          <div className="bg-yellow-900/80 backdrop-blur-sm rounded-lg px-4 py-3 border border-yellow-500/50">
-            <div className="text-xs font-mono text-yellow-100">
-              <div className="font-bold text-yellow-300 mb-1">👁️ WINK MONITOR (Check Console for Full Logs)</div>
-              <div className="flex gap-4">
-                <div>
-                  <span className="text-yellow-400">Left:</span> {((localGaze as any).leftBlink || 0).toFixed(2)}
-                </div>
-                <div>
-                  <span className="text-yellow-400">Right:</span> {((localGaze as any).rightBlink || 0).toFixed(2)}
-                </div>
-                <div className={`font-bold ${localWinking ? 'text-green-400 animate-pulse' : 'text-red-400'}`}>
-                  {localWinking ? `😉 WINKING ${localWinkEye}!` : '❌ No Wink'}
-                </div>
-              </div>
-              <div className="text-xs text-yellow-300 mt-1">
-                Try winking! Closed should be &gt; 0.60, Open &lt; 0.45
-              </div>
-            </div>
+        {/* Remote gaze indicator */}
+        <div className="bg-black/60 backdrop-blur-sm rounded-lg px-4 py-2 border border-white/20">
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-gray-300">Them:</span>
+            <div
+              className={`w-3 h-3 rounded-full transition-colors duration-300 ${
+                remoteGaze?.isLooking ? "bg-green-400 shadow-green-glow" : "bg-gray-500"
+              }`}
+            />
+            {remoteGaze?.isLooking ? (
+              <span className="text-xs text-green-400 font-semibold">👁️ Looking</span>
+            ) : (
+              <span className="text-xs text-gray-400">Away</span>
+            )}
           </div>
-        )}
+        </div>
+        </div>
       </div>
 
       {/* Debug Info Panel */}
