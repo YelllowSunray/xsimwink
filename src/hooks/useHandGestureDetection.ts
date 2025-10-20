@@ -5,11 +5,8 @@ import { HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
 export interface HandGestureStatus {
   isPeaceSign: boolean;
-  isThumbsUp: boolean;
-  isHeartHand: boolean;
-  isRockOn: boolean;
-  isOkSign: boolean;
-  handedness: 'left' | 'right' | null;
+  peaceSignNearMouth: boolean;
+  handPosition: { x: number; y: number } | null;
 }
 
 export function useHandGestureDetection(
@@ -17,76 +14,18 @@ export function useHandGestureDetection(
   enabled: boolean = true
 ) {
   const [isPeaceSign, setIsPeaceSign] = useState(false);
-  const [isThumbsUp, setIsThumbsUp] = useState(false);
-  const [isHeartHand, setIsHeartHand] = useState(false);
-  const [isRockOn, setIsRockOn] = useState(false);
-  const [isOkSign, setIsOkSign] = useState(false);
-  const [handedness, setHandedness] = useState<'left' | 'right' | null>(null);
+  const [peaceSignNearMouth, setPeaceSignNearMouth] = useState(false);
+  const [handPosition, setHandPosition] = useState<{ x: number; y: number } | null>(null);
   
   const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(0);
-  
-  // Temporal detection for gestures to prevent spam
-  const peaceSignStateRef = useRef<{
-    isActive: boolean;
-    startTime: number;
-    lastSent: number;
-  }>({
-    isActive: false,
-    startTime: 0,
-    lastSent: 0,
-  });
 
-  const thumbsUpStateRef = useRef<{
-    isActive: boolean;
-    startTime: number;
-    lastSent: number;
-  }>({
-    isActive: false,
-    startTime: 0,
-    lastSent: 0,
-  });
-
-  const heartHandStateRef = useRef<{
-    isActive: boolean;
-    startTime: number;
-    lastSent: number;
-  }>({
-    isActive: false,
-    startTime: 0,
-    lastSent: 0,
-  });
-
-  const rockOnStateRef = useRef<{
-    isActive: boolean;
-    startTime: number;
-    lastSent: number;
-  }>({
-    isActive: false,
-    startTime: 0,
-    lastSent: 0,
-  });
-
-  const okSignStateRef = useRef<{
-    isActive: boolean;
-    startTime: number;
-    lastSent: number;
-  }>({
-    isActive: false,
-    startTime: 0,
-    lastSent: 0,
-  });
-
+  // Initialize MediaPipe Hand Landmarker
   useEffect(() => {
-    if (!enabled || !videoElement) return;
-
-    let isInitializing = false;
+    let isMounted = true;
 
     const initializeHandLandmarker = async () => {
-      if (isInitializing || handLandmarkerRef.current) return;
-      isInitializing = true;
-
       try {
         console.log('🤚 Initializing MediaPipe Hand Landmarker...');
         const vision = await FilesetResolver.forVisionTasks(
@@ -95,244 +34,102 @@ export function useHandGestureDetection(
 
         const handLandmarker = await HandLandmarker.createFromOptions(vision, {
           baseOptions: {
-            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
             delegate: "GPU",
           },
           runningMode: "VIDEO",
-          numHands: 2,
+          numHands: 1, // Only detect one hand for performance
           minHandDetectionConfidence: 0.5,
           minHandPresenceConfidence: 0.5,
           minTrackingConfidence: 0.5,
         });
 
-        handLandmarkerRef.current = handLandmarker;
-        console.log('✅ Hand Landmarker initialized!');
-        startDetection();
+        if (isMounted) {
+          handLandmarkerRef.current = handLandmarker;
+          console.log('✅ MediaPipe Hand Landmarker initialized successfully!');
+        }
       } catch (error) {
-        console.error("Failed to initialize hand landmarker:", error);
-      } finally {
-        isInitializing = false;
+        console.error("Error initializing Hand Landmarker:", error);
       }
     };
 
-    // Helper: Check if finger is extended
-    const isFingerExtended = (landmarks: any[], fingerTip: number, fingerMCP: number, wrist: number): boolean => {
-      const tipY = landmarks[fingerTip].y;
-      const mcpY = landmarks[fingerMCP].y;
-      const wristY = landmarks[wrist].y;
-      
-      // Finger is extended if tip is significantly above the MCP joint
-      return tipY < mcpY - 0.05;
+    if (enabled) {
+      initializeHandLandmarker();
+    }
+
+    return () => {
+      isMounted = false;
+      if (handLandmarkerRef.current) {
+        handLandmarkerRef.current.close();
+        handLandmarkerRef.current = null;
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
     };
+  }, [enabled]);
 
-    // Helper: Calculate angle between three points
-    const calculateAngle = (p1: any, p2: any, p3: any): number => {
-      const radians = Math.atan2(p3.y - p2.y, p3.x - p2.x) - Math.atan2(p1.y - p2.y, p1.x - p2.x);
-      let angle = Math.abs(radians * 180 / Math.PI);
-      if (angle > 180) angle = 360 - angle;
-      return angle;
-    };
-
-    const detectGesturesFromHands = (result: any): {
-      isPeaceSign: boolean;
-      isThumbsUp: boolean;
-      isHeartHand: boolean;
-      isRockOn: boolean;
-      isOkSign: boolean;
-      handedness: 'left' | 'right' | null;
-    } => {
-      if (!result || !result.landmarks || result.landmarks.length === 0) {
-        return {
-          isPeaceSign: false,
-          isThumbsUp: false,
-          isHeartHand: false,
-          isRockOn: false,
-          isOkSign: false,
-          handedness: null,
-        };
-      }
-
-      const landmarks = result.landmarks[0];
-      const handednessInfo = result.handednesses?.[0]?.[0]?.categoryName?.toLowerCase() || null;
-      
-      // MediaPipe Hand Landmarks indices:
-      // 0: Wrist
-      // 1-4: Thumb (1=CMC, 2=MCP, 3=IP, 4=TIP)
-      // 5-8: Index finger (5=MCP, 6=PIP, 7=DIP, 8=TIP)
-      // 9-12: Middle finger (9=MCP, 10=PIP, 11=DIP, 12=TIP)
-      // 13-16: Ring finger (13=MCP, 14=PIP, 15=DIP, 16=TIP)
-      // 17-20: Pinky (17=MCP, 18=PIP, 19=DIP, 20=TIP)
-
-      const wrist = 0;
-      const thumbTip = 4, thumbMCP = 2;
-      const indexTip = 8, indexMCP = 5;
-      const middleTip = 12, middleMCP = 9;
-      const ringTip = 16, ringMCP = 13;
-      const pinkyTip = 20, pinkyMCP = 17;
-
-      // Check which fingers are extended
-      const thumbExtended = isFingerExtended(landmarks, thumbTip, thumbMCP, wrist);
-      const indexExtended = isFingerExtended(landmarks, indexTip, indexMCP, wrist);
-      const middleExtended = isFingerExtended(landmarks, middleTip, middleMCP, wrist);
-      const ringExtended = isFingerExtended(landmarks, ringTip, ringMCP, wrist);
-      const pinkyExtended = isFingerExtended(landmarks, pinkyTip, pinkyMCP, wrist);
-
-      const now = Date.now();
-      let detectedPeaceSign = false;
-      let detectedThumbsUp = false;
-      let detectedHeartHand = false;
-      let detectedRockOn = false;
-      let detectedOkSign = false;
-
-      // PEACE SIGN: Index and middle extended, others folded
-      if (indexExtended && middleExtended && !ringExtended && !pinkyExtended && !thumbExtended) {
-        if (!peaceSignStateRef.current.isActive) {
-          peaceSignStateRef.current = {
-            isActive: true,
-            startTime: now,
-            lastSent: peaceSignStateRef.current.lastSent,
-          };
-          console.log('✌️ PEACE SIGN started!');
-        }
-      } else if (peaceSignStateRef.current.isActive) {
-        const duration = now - peaceSignStateRef.current.startTime;
-        const timeSinceLastSent = now - peaceSignStateRef.current.lastSent;
-        
-        if (duration >= 300 && duration <= 1500 && timeSinceLastSent > 1200) {
-          detectedPeaceSign = true;
-          peaceSignStateRef.current.lastSent = now;
-          console.log('✌️✅ CONFIRMED PEACE SIGN! Duration:', duration + 'ms');
-        }
-        
-        peaceSignStateRef.current = {
-          isActive: false,
-          startTime: 0,
-          lastSent: peaceSignStateRef.current.lastSent,
-        };
-      }
-
-      // THUMBS UP: Only thumb extended, all others folded
-      if (thumbExtended && !indexExtended && !middleExtended && !ringExtended && !pinkyExtended) {
-        if (!thumbsUpStateRef.current.isActive) {
-          thumbsUpStateRef.current = {
-            isActive: true,
-            startTime: now,
-            lastSent: thumbsUpStateRef.current.lastSent,
-          };
-          console.log('👍 THUMBS UP started!');
-        }
-      } else if (thumbsUpStateRef.current.isActive) {
-        const duration = now - thumbsUpStateRef.current.startTime;
-        const timeSinceLastSent = now - thumbsUpStateRef.current.lastSent;
-        
-        if (duration >= 300 && duration <= 1500 && timeSinceLastSent > 1200) {
-          detectedThumbsUp = true;
-          thumbsUpStateRef.current.lastSent = now;
-          console.log('👍✅ CONFIRMED THUMBS UP! Duration:', duration + 'ms');
-        }
-        
-        thumbsUpStateRef.current = {
-          isActive: false,
-          startTime: 0,
-          lastSent: thumbsUpStateRef.current.lastSent,
-        };
-      }
-
-      // ROCK ON: Index and pinky extended, thumb extended, middle and ring folded
-      if (thumbExtended && indexExtended && !middleExtended && !ringExtended && pinkyExtended) {
-        if (!rockOnStateRef.current.isActive) {
-          rockOnStateRef.current = {
-            isActive: true,
-            startTime: now,
-            lastSent: rockOnStateRef.current.lastSent,
-          };
-          console.log('🤘 ROCK ON started!');
-        }
-      } else if (rockOnStateRef.current.isActive) {
-        const duration = now - rockOnStateRef.current.startTime;
-        const timeSinceLastSent = now - rockOnStateRef.current.lastSent;
-        
-        if (duration >= 300 && duration <= 1500 && timeSinceLastSent > 1200) {
-          detectedRockOn = true;
-          rockOnStateRef.current.lastSent = now;
-          console.log('🤘✅ CONFIRMED ROCK ON! Duration:', duration + 'ms');
-        }
-        
-        rockOnStateRef.current = {
-          isActive: false,
-          startTime: 0,
-          lastSent: rockOnStateRef.current.lastSent,
-        };
-      }
-
-      // OK SIGN: Thumb tip touching index tip, other fingers extended
-      const thumbIndexDistance = Math.sqrt(
-        Math.pow(landmarks[thumbTip].x - landmarks[indexTip].x, 2) +
-        Math.pow(landmarks[thumbTip].y - landmarks[indexTip].y, 2)
-      );
-      
-      if (thumbIndexDistance < 0.05 && middleExtended && ringExtended && pinkyExtended) {
-        if (!okSignStateRef.current.isActive) {
-          okSignStateRef.current = {
-            isActive: true,
-            startTime: now,
-            lastSent: okSignStateRef.current.lastSent,
-          };
-          console.log('👌 OK SIGN started!');
-        }
-      } else if (okSignStateRef.current.isActive) {
-        const duration = now - okSignStateRef.current.startTime;
-        const timeSinceLastSent = now - okSignStateRef.current.lastSent;
-        
-        if (duration >= 300 && duration <= 1500 && timeSinceLastSent > 1200) {
-          detectedOkSign = true;
-          okSignStateRef.current.lastSent = now;
-          console.log('👌✅ CONFIRMED OK SIGN! Duration:', duration + 'ms');
-        }
-        
-        okSignStateRef.current = {
-          isActive: false,
-          startTime: 0,
-          lastSent: okSignStateRef.current.lastSent,
-        };
-      }
-
-      return {
-        isPeaceSign: detectedPeaceSign,
-        isThumbsUp: detectedThumbsUp,
-        isHeartHand: detectedHeartHand, // TODO: Implement heart detection with two hands
-        isRockOn: detectedRockOn,
-        isOkSign: detectedOkSign,
-        handedness: handednessInfo as 'left' | 'right' | null,
-      };
-    };
+  // Detection logic
+  useEffect(() => {
+    if (!videoElement || !enabled || !handLandmarkerRef.current) {
+      return;
+    }
 
     const detect = () => {
-      if (!handLandmarkerRef.current || !videoElement || videoElement.readyState < 2) {
+      if (!handLandmarkerRef.current || !videoElement) {
         animationFrameRef.current = requestAnimationFrame(detect);
         return;
       }
 
       const now = performance.now();
       
-      // Throttle detection to ~10 FPS for performance
-      if (now - lastDetectionTime.current < 100) {
+      // Throttle to ~30fps
+      if (now - lastDetectionTime.current < 33) {
         animationFrameRef.current = requestAnimationFrame(detect);
         return;
       }
-
+      
       lastDetectionTime.current = now;
 
       try {
-        const result = handLandmarkerRef.current.detectForVideo(videoElement, now);
-        const gestures = detectGesturesFromHands(result);
-        
-        setIsPeaceSign(gestures.isPeaceSign);
-        setIsThumbsUp(gestures.isThumbsUp);
-        setIsHeartHand(gestures.isHeartHand);
-        setIsRockOn(gestures.isRockOn);
-        setIsOkSign(gestures.isOkSign);
-        setHandedness(gestures.handedness);
+        // Check if video is ready
+        if (videoElement.readyState < 2 || !videoElement.videoWidth) {
+          animationFrameRef.current = requestAnimationFrame(detect);
+          return;
+        }
+
+        const result = handLandmarkerRef.current.detectForVideo(
+          videoElement,
+          performance.now()
+        );
+
+        if (result && result.landmarks && result.landmarks.length > 0) {
+          const landmarks = result.landmarks[0]; // First hand
+          
+          // Detect Peace Sign (V-sign)
+          const isPeace = detectPeaceSign(landmarks);
+          setIsPeaceSign(isPeace);
+          
+          // Get hand position (center of palm)
+          const palmCenter = {
+            x: landmarks[9].x, // Middle finger base
+            y: landmarks[9].y,
+          };
+          setHandPosition(palmCenter);
+          
+          // Check if peace sign is near mouth (y < 0.6 = upper half of frame)
+          const nearMouth = isPeace && palmCenter.y < 0.6 && palmCenter.y > 0.3;
+          setPeaceSignNearMouth(nearMouth);
+          
+          if (nearMouth) {
+            console.log('✌️👅 Peace sign near mouth detected!');
+          }
+        } else {
+          setIsPeaceSign(false);
+          setPeaceSignNearMouth(false);
+          setHandPosition(null);
+        }
       } catch (error) {
         console.error("Hand detection error:", error);
       }
@@ -340,26 +137,44 @@ export function useHandGestureDetection(
       animationFrameRef.current = requestAnimationFrame(detect);
     };
 
-    const startDetection = () => {
-      if (animationFrameRef.current) {
-        cancelAnimationFrame(animationFrameRef.current);
-      }
-      detect();
-    };
-
-    initializeHandLandmarker();
+    animationFrameRef.current = requestAnimationFrame(detect);
 
     return () => {
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
       }
-      if (handLandmarkerRef.current) {
-        handLandmarkerRef.current.close();
-        handLandmarkerRef.current = null;
-      }
     };
   }, [videoElement, enabled]);
 
-  return { isPeaceSign, isThumbsUp, isHeartHand, isRockOn, isOkSign, handedness };
+  return { isPeaceSign, peaceSignNearMouth, handPosition };
 }
 
+// Detect peace sign (index and middle fingers extended, others closed)
+function detectPeaceSign(landmarks: any[]): boolean {
+  // Thumb tip, index tip, middle tip, ring tip, pinky tip
+  const thumbTip = landmarks[4];
+  const indexTip = landmarks[8];
+  const middleTip = landmarks[12];
+  const ringTip = landmarks[16];
+  const pinkyTip = landmarks[20];
+  
+  // Finger bases
+  const indexBase = landmarks[5];
+  const middleBase = landmarks[9];
+  const ringBase = landmarks[13];
+  const pinkyBase = landmarks[17];
+  
+  // Check if index and middle fingers are extended (tip higher than base)
+  const indexExtended = indexTip.y < indexBase.y - 0.05;
+  const middleExtended = middleTip.y < middleBase.y - 0.05;
+  
+  // Check if ring and pinky are closed (tip close to base)
+  const ringClosed = Math.abs(ringTip.y - ringBase.y) < 0.08;
+  const pinkyClosed = Math.abs(pinkyTip.y - pinkyBase.y) < 0.08;
+  
+  // Check separation between index and middle (V shape)
+  const fingerSeparation = Math.abs(indexTip.x - middleTip.x);
+  const hasVShape = fingerSeparation > 0.03;
+  
+  return indexExtended && middleExtended && ringClosed && pinkyClosed && hasVShape;
+}

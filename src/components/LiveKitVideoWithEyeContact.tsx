@@ -29,7 +29,9 @@ function RoomContent() {
   const remoteTrackRef = useRef<HTMLVideoElement>(null);
   const [eyeContactEnabled, setEyeContactEnabled] = useState(true);
   const [gesturesEnabled, setGesturesEnabled] = useState(true);
+  const [gestureDetectionEnabled, setGestureDetectionEnabled] = useState(true); // Actually run detection
   const [showDebug, setShowDebug] = useState(false);
+  const [showMoreOptions, setShowMoreOptions] = useState(false);
   const [manualLocalWink, setManualLocalWink] = useState(false);
   const [manualRemoteWink, setManualRemoteWink] = useState(false);
 
@@ -139,7 +141,7 @@ function RoomContent() {
         <LiveKitEyeContactOverlay
           localVideoRef={localVideoRef}
           remoteVideoRef={remoteVideoRef}
-          enabled={true}
+          enabled={gestureDetectionEnabled}
           showDebugInfo={showDebug}
           manualLocalWink={manualLocalWink}
           manualRemoteWink={manualRemoteWink}
@@ -147,9 +149,9 @@ function RoomContent() {
         />
       )}
 
-      {/* Control Bar */}
-      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-30">
-        <div className="bg-black/80 backdrop-blur-lg rounded-full px-6 py-3 border border-white/20">
+      {/* Control Bar - Highly visible */}
+      <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-50">
+        <div className="bg-black/90 backdrop-blur-lg rounded-full px-6 py-4 border-2 border-white/30 shadow-2xl">
           <div className="flex items-center gap-4">
             {/* Toggle Eye Contact Detection */}
             <button
@@ -174,23 +176,47 @@ function RoomContent() {
               </svg>
             </button>
 
-            {/* Toggle Gesture Animations */}
+            {/* Toggle Gesture Animations - More visible */}
             <button
               onClick={() => setGesturesEnabled(!gesturesEnabled)}
-              className={`p-3 rounded-full transition ${
+              className={`px-4 py-3 rounded-full transition-all transform hover:scale-105 ${
                 gesturesEnabled
-                  ? "bg-yellow-600 hover:bg-yellow-700"
-                  : "bg-gray-600 hover:bg-gray-700"
+                  ? "bg-yellow-600 hover:bg-yellow-700 shadow-lg shadow-yellow-500/50"
+                  : "bg-red-600 hover:bg-red-700 shadow-lg shadow-red-500/50"
               }`}
               title={
                 gesturesEnabled
-                  ? "Hide gesture animations"
-                  : "Show gesture animations"
+                  ? "Hide winks/gestures 😉→🚫"
+                  : "Show winks/gestures 🚫→😉"
               }
             >
-              <span className="text-2xl">{gesturesEnabled ? "😉" : "🚫"}</span>
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">{gesturesEnabled ? "😉" : "🚫"}</span>
+                <span className="text-white text-sm font-semibold">
+                  {gesturesEnabled ? "ON" : "OFF"}
+                </span>
+              </div>
             </button>
 
+            {/* More Options Button */}
+            <button
+              onClick={() => setShowMoreOptions(!showMoreOptions)}
+              className={`p-3 rounded-full transition ${
+                showMoreOptions
+                  ? "bg-purple-600 hover:bg-purple-700"
+                  : "bg-gray-700 hover:bg-gray-600"
+              }`}
+              title="More options"
+            >
+              <svg
+                className="w-6 h-6 text-white"
+                fill="currentColor"
+                viewBox="0 0 20 20"
+              >
+                <path d="M10 6a2 2 0 110-4 2 2 0 010 4zM10 12a2 2 0 110-4 2 2 0 010 4zM10 18a2 2 0 110-4 2 2 0 010 4z" />
+              </svg>
+            </button>
+            
             {/* Toggle Debug Info */}
             <button
               onClick={() => setShowDebug(!showDebug)}
@@ -249,6 +275,91 @@ function RoomContent() {
           </div>
         </div>
       </div>
+
+      {/* More Options Menu */}
+      {showMoreOptions && (
+        <div className="absolute bottom-24 left-1/2 transform -translate-x-1/2 z-50">
+          <div className="bg-black/95 backdrop-blur-lg rounded-2xl px-6 py-4 border-2 border-purple-500/50 shadow-2xl min-w-[300px]">
+            <div className="text-white text-lg font-bold mb-4 flex items-center justify-between">
+              <span>⚙️ More Options</span>
+              <button
+                onClick={() => setShowMoreOptions(false)}
+                className="text-gray-400 hover:text-white"
+              >
+                ✕
+              </button>
+            </div>
+            
+            {/* No Gestures Option */}
+            <div className="space-y-3">
+              <div className="flex items-center justify-between bg-gray-800/50 p-3 rounded-lg">
+                <div className="flex-1">
+                  <div className="text-white font-semibold">🚫 No Gestures</div>
+                  <div className="text-gray-400 text-xs mt-1">
+                    Stop detecting & sending winks/kisses
+                  </div>
+                </div>
+                <button
+                  onClick={() => setGestureDetectionEnabled(!gestureDetectionEnabled)}
+                  className={`ml-4 px-4 py-2 rounded-full font-semibold transition-all ${
+                    gestureDetectionEnabled
+                      ? "bg-green-600 hover:bg-green-700 text-white"
+                      : "bg-red-600 hover:bg-red-700 text-white"
+                  }`}
+                >
+                  {gestureDetectionEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              
+              {/* Show Gestures Option */}
+              <div className="flex items-center justify-between bg-gray-800/50 p-3 rounded-lg">
+                <div className="flex-1">
+                  <div className="text-white font-semibold">👀 Show Gestures</div>
+                  <div className="text-gray-400 text-xs mt-1">
+                    Display emoji animations when received
+                  </div>
+                </div>
+                <button
+                  onClick={() => setGesturesEnabled(!gesturesEnabled)}
+                  className={`ml-4 px-4 py-2 rounded-full font-semibold transition-all ${
+                    gesturesEnabled
+                      ? "bg-green-600 hover:bg-green-700 text-white"
+                      : "bg-red-600 hover:bg-red-700 text-white"
+                  }`}
+                >
+                  {gesturesEnabled ? "ON" : "OFF"}
+                </button>
+              </div>
+              
+              {/* Debug Mode */}
+              <div className="flex items-center justify-between bg-gray-800/50 p-3 rounded-lg">
+                <div className="flex-1">
+                  <div className="text-white font-semibold">🐛 Debug Mode</div>
+                  <div className="text-gray-400 text-xs mt-1">
+                    Show detection info on screen
+                  </div>
+                </div>
+                <button
+                  onClick={() => setShowDebug(!showDebug)}
+                  className={`ml-4 px-4 py-2 rounded-full font-semibold transition-all ${
+                    showDebug
+                      ? "bg-green-600 hover:bg-green-700 text-white"
+                      : "bg-gray-600 hover:bg-gray-700 text-white"
+                  }`}
+                >
+                  {showDebug ? "ON" : "OFF"}
+                </button>
+              </div>
+            </div>
+            
+            <div className="mt-4 pt-3 border-t border-gray-700">
+              <div className="text-gray-400 text-xs">
+                💡 <strong>Tip:</strong> Turn off "No Gestures" to stop sending your winks/kisses to others
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Come Closer Button - Separate from overlay */}
       {eyeContactEnabled && (

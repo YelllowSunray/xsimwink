@@ -15,7 +15,7 @@ interface LiveKitEyeContactOverlayProps {
 
 interface GestureAnimation {
   id: string;
-  type: 'wink';
+  type: 'wink' | 'tongue' | 'kiss' | 'vTongue';
   side?: 'left' | 'right';
   timestamp: number;
   emoji: string;
@@ -41,6 +41,12 @@ export default function LiveKitEyeContactOverlay({
     remoteWinking,
     localWinkEye,
     remoteWinkEye,
+    localTongueOut,
+    remoteTongueOut,
+    localKissing,
+    remoteKissing,
+    localVTongue,
+    remoteVTongue,
     comeCloserRequest,
     sendComeCloserRequest,
   } = eyeContactState;
@@ -100,11 +106,35 @@ export default function LiveKitEyeContactOverlay({
       addGestureAnimation(true, 'wink', '😉', localWinkEye);
     }
     
+    if (localTongueOut) {
+      addGestureAnimation(true, 'tongue', '👅');
+    }
+    
+    if (localKissing) {
+      addGestureAnimation(true, 'kiss', '💋');
+    }
+    
+    if (localVTongue) {
+      addGestureAnimation(true, 'vTongue', '🥵💦'); // Hot face + water droplets
+    }
+    
     // Remote gestures
     if (remoteWinking && remoteWinkEye) {
       addGestureAnimation(false, 'wink', '😉', remoteWinkEye);
     }
-  }, [localWinking, localWinkEye, remoteWinking, remoteWinkEye]);
+    
+    if (remoteTongueOut) {
+      addGestureAnimation(false, 'tongue', '👅');
+    }
+    
+    if (remoteKissing) {
+      addGestureAnimation(false, 'kiss', '💋');
+    }
+    
+    if (remoteVTongue) {
+      addGestureAnimation(false, 'vTongue', '🥵💦'); // Hot face + water droplets
+    }
+  }, [localWinking, localWinkEye, localTongueOut, localKissing, localVTongue, remoteWinking, remoteWinkEye, remoteTongueOut, remoteKissing, remoteVTongue]);
 
   // Manual testing (kept for backward compatibility)
   useEffect(() => {
@@ -162,10 +192,10 @@ export default function LiveKitEyeContactOverlay({
     <div className="absolute inset-0 pointer-events-none z-10">
       {/* Local Wink Animations (bottom-right where local video is) */}
       {gesturesEnabled && localGestureAnimations.map((gesture) => (
-        <div
+          <div
           key={gesture.id}
           className="absolute bottom-28 right-20 z-30"
-          style={{
+            style={{
             animation: 'gestureFloat 2s ease-out forwards',
           }}
         >

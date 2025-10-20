@@ -3,7 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import { useDataChannel, useRoomContext } from "@livekit/components-react";
 import { DataPacket_Kind } from "livekit-client";
-import { FaceLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
+import { FaceLandmarker, HandLandmarker, FilesetResolver } from "@mediapipe/tasks-vision";
 
 interface GazeData {
   gazeX: number; // -1 to 1, where 0 is center
@@ -13,6 +13,9 @@ interface GazeData {
   timestamp: number;
   isWinking: boolean;
   winkEye: 'left' | 'right' | null;
+  isTongueOut: boolean;
+  isKissing: boolean;
+  isVTongue: boolean; // V-sign + tongue out combo
   leftBlink?: number; // Debug: raw blink value
   rightBlink?: number; // Debug: raw blink value
 }
@@ -22,6 +25,12 @@ interface EyeContactState {
   remoteWinking: boolean;
   localWinkEye: 'left' | 'right' | null;
   remoteWinkEye: 'left' | 'right' | null;
+  localTongueOut: boolean;
+  remoteTongueOut: boolean;
+  localKissing: boolean;
+  remoteKissing: boolean;
+  localVTongue: boolean;
+  remoteVTongue: boolean;
   comeCloserRequest: boolean;
   sendComeCloserRequest: () => void;
 }
@@ -39,13 +48,19 @@ export function useLiveKitEyeContact(
     remoteWinkEye: null,
     localTongueOut: false,
     remoteTongueOut: false,
+    localKissing: false,
+    remoteKissing: false,
+    localVTongue: false,
+    remoteVTongue: false,
     comeCloserRequest: false,
   });
 
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
+  const handLandmarkerRef = useRef<HandLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(0);
   const isCleaningUpRef = useRef<boolean>(false);
+  const lastHandDetection = useRef<{ isPeaceSign: boolean; handY: number; handX: number } | null>(null);
   
   // Wink temporal detection
   const winkStateRef = useRef<{
@@ -67,13 +82,15 @@ export function useLiveKitEyeContact(
         new TextDecoder().decode(message.payload)
       );
       
-      // Handle wink and tongue data
+      // Handle wink, tongue, kiss, and V-tongue data
       if (remoteData.isWinking !== undefined) {
         setEyeContactState((prev) => ({
           ...prev,
           remoteWinking: remoteData.isWinking,
           remoteWinkEye: remoteData.winkEye,
           remoteTongueOut: remoteData.isTongueOut || false,
+          remoteKissing: remoteData.isKissing || false,
+          remoteVTongue: remoteData.isVTongue || false,
         }));
       }
       
@@ -88,7 +105,7 @@ export function useLiveKitEyeContact(
         // Auto-dismiss after 5 seconds
         setTimeout(() => {
           setEyeContactState((prev) => ({
-            ...prev,
+          ...prev,
             comeCloserRequest: false,
           }));
         }, 5000);
@@ -99,7 +116,7 @@ export function useLiveKitEyeContact(
   });
 
   // Send local wink data to remote participant
-  const sendWinkData = (winkData: { isWinking: boolean; winkEye: 'left' | 'right' | null }) => {
+  const sendWinkData = (winkData: { isWinking: boolean; winkEye: 'left' | 'right' | null; isTongueOut: boolean; isKissing: boolean; isVTongue: boolean }) => {
     if (!room?.localParticipant) return;
 
     try {
@@ -142,10 +159,41 @@ export function useLiveKitEyeContact(
       console.log('❌ Eye contact detection disabled');
       return;
     }
-    
+
     let isInitializing = false;
     isCleaningUpRef.current = false;
 
+    const initializeHandLandmarker = async () => {
+      if (handLandmarkerRef.current) {
+        return;
+      }
+      
+      try {
+        console.log('🤚 Initializing Hand Landmarker...');
+        const vision = await FilesetResolver.forVisionTasks(
+          "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+        );
+
+        const handLandmarker = await HandLandmarker.createFromOptions(vision, {
+          baseOptions: {
+            modelAssetPath:
+              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
+            delegate: "GPU",
+          },
+          runningMode: "VIDEO",
+          numHands: 1,
+          minHandDetectionConfidence: 0.5,
+          minHandPresenceConfidence: 0.5,
+          minTrackingConfidence: 0.5,
+        });
+
+        handLandmarkerRef.current = handLandmarker;
+        console.log('✅ Hand Landmarker initialized');
+      } catch (error) {
+        console.error("❌ Error initializing Hand Landmarker:", error);
+      }
+    };
+    
     const initializeFaceLandmarker = async (videoEl?: HTMLVideoElement) => {
       const targetVideo = videoEl || localVideoElement;
       
@@ -185,6 +233,10 @@ export function useLiveKitEyeContact(
 
         faceLandmarkerRef.current = faceLandmarker;
         console.log('✅ MediaPipe FaceLandmarker initialized successfully!');
+        
+        // Initialize hand landmarker in parallel
+        initializeHandLandmarker();
+        
         startDetection(targetVideo);
       } catch (error) {
         console.error("❌ Failed to initialize face landmarker:", error);
@@ -193,6 +245,48 @@ export function useLiveKitEyeContact(
       }
     };
 
+    // Detect V-sign (peace sign) from hand landmarks
+    const detectVSign = (landmarks: any[]): { isPeaceSign: boolean; handY: number; handX: number } => {
+      if (!landmarks || landmarks.length < 21) {
+        return { isPeaceSign: false, handY: 0, handX: 0 };
+      }
+      
+      // Thumb tip, index tip, middle tip, ring tip, pinky tip
+      const indexTip = landmarks[8];
+      const middleTip = landmarks[12];
+      const ringTip = landmarks[16];
+      const pinkyTip = landmarks[20];
+      
+      // Finger bases
+      const indexBase = landmarks[5];
+      const middleBase = landmarks[9];
+      const ringBase = landmarks[13];
+      const pinkyBase = landmarks[17];
+      
+      // Palm center for position
+      const palmCenter = landmarks[9];
+      
+      // Check if index and middle fingers are extended (tip higher than base in camera view)
+      const indexExtended = indexTip.y < indexBase.y - 0.05;
+      const middleExtended = middleTip.y < middleBase.y - 0.05;
+      
+      // Check if ring and pinky are closed (tip close to base)
+      const ringClosed = Math.abs(ringTip.y - ringBase.y) < 0.08;
+      const pinkyClosed = Math.abs(pinkyTip.y - pinkyBase.y) < 0.08;
+      
+      // Check separation between index and middle (V shape)
+      const fingerSeparation = Math.abs(indexTip.x - middleTip.x);
+      const hasVShape = fingerSeparation > 0.03;
+      
+      const isPeaceSign = indexExtended && middleExtended && ringClosed && pinkyClosed && hasVShape;
+      
+      return {
+        isPeaceSign,
+        handY: palmCenter.y,
+        handX: palmCenter.x,
+      };
+    };
+    
     // Calculate Eye Aspect Ratio (EAR) for wink detection
     const calculateEAR = (eyeLandmarks: any[]): number => {
       // Calculate vertical distances
@@ -215,11 +309,14 @@ export function useLiveKitEyeContact(
       return (vertical1 + vertical2) / (2.0 * horizontal);
     };
 
-    const calculateWink = (result: any): { isWinking: boolean; winkEye: 'left' | 'right' | null } => {
+    const calculateWink = (result: any): { isWinking: boolean; winkEye: 'left' | 'right' | null; isTongueOut: boolean; isKissing: boolean; isVTongue: boolean } => {
       if (!result || !result.faceLandmarks || result.faceLandmarks.length === 0) {
         return {
           isWinking: false,
           winkEye: null,
+          isTongueOut: false,
+          isKissing: false,
+          isVTongue: false,
         };
       }
 
@@ -289,6 +386,7 @@ export function useLiveKitEyeContact(
       let isWinking = false;
       let winkEye: 'left' | 'right' | null = null;
       let isTongueOut = false;
+      let isKissing = false;
       let usingEARFallback = false;
       
       // METHOD 1: Try blendshapes first (preferred)
@@ -302,8 +400,8 @@ export function useLiveKitEyeContact(
             (c: any) => c.categoryName === "eyeBlinkRight"
           )?.score || 0;
 
-        // ULTRA SIMPLE: Just check if one eye is above 0.3 and other is below 0.3
-        const WINK_THRESHOLD = 0.3;
+        // Wink detection with harder threshold
+        const WINK_THRESHOLD = 0.45; // Harder threshold - must really close eye
         
         const now = Date.now();
         
@@ -362,18 +460,28 @@ export function useLiveKitEyeContact(
           };
         }
         
-        // TONGUE OUT DETECTION
+        // TONGUE OUT DETECTION - SHOW ALL SCORES
         const tongueOutScore = blendshapes.categories?.find((c: any) => c.categoryName === "tongueOut")?.score || 0;
         
-        // Simple threshold detection - if tongue score > 0.25, tongue is out
-        if (tongueOutScore > 0.25) {
+        // Debug logging - ALWAYS show tongue score (every frame)
+        console.log('👅 Tongue score:', tongueOutScore.toFixed(3), '(threshold: 0.35)');
+        
+        // Harder threshold - must really stick tongue out
+        if (tongueOutScore > 0.35) {
           isTongueOut = true;
-          console.log('👅 TONGUE OUT detected! Score:', tongueOutScore.toFixed(2));
+          console.log('👅✅ TONGUE OUT TRIGGERED! Score:', tongueOutScore.toFixed(2));
         }
         
-        // Debug logging (occasional)
-        if (Math.random() < 0.02 && tongueOutScore > 0.05) {
-          console.log('👅 Tongue score:', tongueOutScore.toFixed(2), '(threshold: 0.25)');
+        // KISS/PUCKER DETECTION - SHOW ALL SCORES
+        const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
+        
+        // Debug logging - ALWAYS show pucker score (every frame)
+        console.log('💋 Pucker score:', mouthPuckerScore.toFixed(3), '(threshold: 0.75 - VERY HARD)');
+        
+        // VERY hard threshold - must be > 0.75 to trigger (extremely deliberate kiss/pucker)
+        if (mouthPuckerScore > 0.75) {
+          isKissing = true;
+          console.log('💋✅ KISS TRIGGERED! Score:', mouthPuckerScore.toFixed(2));
         }
         
         eyeOpennessConfidence = 1 - (leftEyeBlink + rightEyeBlink) / 2;
@@ -473,6 +581,8 @@ export function useLiveKitEyeContact(
         isWinking,
         winkEye,
         isTongueOut,
+        isKissing,
+        isVTongue: false, // Will be combined with hand detection separately
         // Add raw blink values for debugging
         leftBlink: leftEyeBlink,
         rightBlink: rightEyeBlink,
@@ -571,22 +681,82 @@ export function useLiveKitEyeContact(
           return;
         }
         
-        const gazeData = calculateGazeFromLandmarks(result);
+        const faceData = calculateWink(result);
+        let { isWinking, winkEye, isTongueOut, isKissing, isVTongue } = faceData;
+
+        // HAND DETECTION - Run in parallel
+        if (handLandmarkerRef.current && targetVideo) {
+          try {
+            const handResult = handLandmarkerRef.current.detectForVideo(
+              targetVideo,
+              performance.now()
+            );
+            
+            if (handResult && handResult.landmarks && handResult.landmarks.length > 0) {
+              const handLandmarks = handResult.landmarks[0];
+              const vSignData = detectVSign(handLandmarks);
+              
+              // Store hand detection for combination with face data
+              lastHandDetection.current = vSignData;
+              
+              // COMBO GESTURE: V-sign near mouth + tongue out
+              if (vSignData.isPeaceSign && isTongueOut) {
+                // Check if hand is near mouth region (upper half of face, center)
+                const nearMouth = 
+                  vSignData.handY > 0.3 && vSignData.handY < 0.7 && // Vertical: mouth region
+                  vSignData.handX > 0.3 && vSignData.handX < 0.7;    // Horizontal: center
+                
+                if (nearMouth) {
+                  isVTongue = true;
+                  console.log('✌️👅 V-TONGUE COMBO DETECTED! Hand:', vSignData.handY.toFixed(2), 'Tongue: yes');
+                }
+              }
+              
+              // Debug V-sign detection
+              if (vSignData.isPeaceSign) {
+                console.log('✌️ Peace sign detected at Y:', vSignData.handY.toFixed(2), 'X:', vSignData.handX.toFixed(2));
+              }
+            } else {
+              lastHandDetection.current = null;
+            }
+          } catch (handError) {
+            // Silently fail hand detection to not interrupt face detection
+          }
+        }
+
+        // Debug: Log gesture states
+        if (isTongueOut || isKissing || isVTongue) {
+          console.log('🎯 Gestures detected:', { 
+            wink: isWinking, 
+            tongue: isTongueOut, 
+            kiss: isKissing,
+            vTongue: isVTongue
+          });
+        }
 
         // Update local state
         setEyeContactState((prev) => ({
-          ...prev,
-          localWinking: gazeData.isWinking,
-          localWinkEye: gazeData.winkEye,
-          localTongueOut: gazeData.isTongueOut,
+            ...prev,
+          localWinking: isWinking,
+          localWinkEye: winkEye,
+          localTongueOut: isTongueOut,
+          localKissing: isKissing,
+          localVTongue: isVTongue,
         }));
 
         // Send to remote participant
         sendWinkData({ 
-          isWinking: gazeData.isWinking, 
-          winkEye: gazeData.winkEye,
-          isTongueOut: gazeData.isTongueOut
+          isWinking, 
+          winkEye,
+          isTongueOut,
+          isKissing,
+          isVTongue // Now calculated with hand detection
         });
+        
+        // Confirm data sent
+        if (isTongueOut || isKissing || isVTongue) {
+          console.log('📤 Sent gesture data:', { isTongueOut, isKissing, isVTongue });
+        }
       } catch (error) {
         // Only log errors if we're not cleaning up
         if (!isCleaningUpRef.current) {
@@ -616,7 +786,7 @@ export function useLiveKitEyeContact(
     // Try immediate initialization if video is available
     if (localVideoElement) {
       console.log('✅ Local video element available, initializing immediately');
-      initializeFaceLandmarker();
+    initializeFaceLandmarker();
     }
 
     return () => {
@@ -631,13 +801,22 @@ export function useLiveKitEyeContact(
       
       // Small delay to ensure any in-flight detectForVideo calls complete
       setTimeout(() => {
-        if (faceLandmarkerRef.current) {
+      if (faceLandmarkerRef.current) {
           try {
-            faceLandmarkerRef.current.close();
+        faceLandmarkerRef.current.close();
           } catch (error) {
             // Silently handle close errors
           }
-          faceLandmarkerRef.current = null;
+        faceLandmarkerRef.current = null;
+      }
+        
+        if (handLandmarkerRef.current) {
+          try {
+            handLandmarkerRef.current.close();
+          } catch (error) {
+            // Silently handle close errors
+          }
+          handLandmarkerRef.current = null;
         }
       }, 50);
     };
