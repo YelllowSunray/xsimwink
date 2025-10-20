@@ -18,10 +18,6 @@ interface GazeData {
 }
 
 interface EyeContactState {
-  localGaze: GazeData | null;
-  remoteGaze: GazeData | null;
-  isMutualEyeContact: boolean;
-  eyeContactDuration: number; // in seconds
   localWinking: boolean;
   remoteWinking: boolean;
   localWinkEye: 'left' | 'right' | null;
@@ -35,10 +31,6 @@ export function useLiveKitEyeContact(
 ) {
   const room = useRoomContext();
   const [eyeContactState, setEyeContactState] = useState<EyeContactState>({
-    localGaze: null,
-    remoteGaze: null,
-    isMutualEyeContact: false,
-    eyeContactDuration: 0,
     localWinking: false,
     remoteWinking: false,
     localWinkEye: null,
@@ -48,8 +40,6 @@ export function useLiveKitEyeContact(
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(0);
-  const eyeContactStartTime = useRef<number | null>(null);
-  const eyeContactIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const isCleaningUpRef = useRef<boolean>(false);
   
   // Wink temporal detection
@@ -65,104 +55,38 @@ export function useLiveKitEyeContact(
     lastSentWink: 0,
   });
 
-  // Receive gaze data from remote participant
+  // Receive wink data from remote participant
   useDataChannel("eye-contact", (message) => {
     try {
-      const remoteGaze: GazeData = JSON.parse(
+      const remoteData: { isWinking: boolean; winkEye: 'left' | 'right' | null } = JSON.parse(
         new TextDecoder().decode(message.payload)
       );
       
-      // Log when receiving gesture data
-      if (remoteGaze.isWinking) {
-        console.log('📥 Received wink data:', remoteGaze.winkEye, 'eye');
-      }
-      
-      setEyeContactState((prev) => {
-        const isMutual = checkMutualEyeContact(prev.localGaze, remoteGaze);
-        return {
-          ...prev,
-          remoteGaze,
-          isMutualEyeContact: isMutual,
-          remoteWinking: remoteGaze.isWinking,
-          remoteWinkEye: remoteGaze.winkEye,
-        };
-      });
+      setEyeContactState((prev) => ({
+        ...prev,
+        remoteWinking: remoteData.isWinking,
+        remoteWinkEye: remoteData.winkEye,
+      }));
     } catch (error) {
-      console.error("Error parsing eye contact data:", error);
+      console.error("Error parsing wink data:", error);
     }
   });
 
-  // Send local gaze data to remote participant
-  const sendGazeData = (gazeData: GazeData) => {
+  // Send local wink data to remote participant
+  const sendWinkData = (winkData: { isWinking: boolean; winkEye: 'left' | 'right' | null }) => {
     if (!room?.localParticipant) return;
 
     try {
       const encoder = new TextEncoder();
-      const data = encoder.encode(JSON.stringify(gazeData));
-
-      // Log when sending gesture data
-      if (gazeData.isWinking) {
-        console.log('📤 Sending wink data:', gazeData.winkEye, 'eye');
-      }
+      const data = encoder.encode(JSON.stringify(winkData));
 
       room.localParticipant.publishData(data, {
-        reliable: false, // Use unreliable for low latency
+        reliable: false,
         topic: "eye-contact",
-        destinationIdentities: undefined, // Send to all participants
       });
     } catch (error) {
-      console.error("Error sending gaze data:", error);
+      console.error("Error sending wink data:", error);
     }
-  };
-
-  // Calculate Eye Aspect Ratio (EAR) for wink detection
-  const calculateEAR = (eyeLandmarks: any[]): number => {
-    // Calculate vertical distances
-    const vertical1 = Math.hypot(
-      eyeLandmarks[1].x - eyeLandmarks[5].x,
-      eyeLandmarks[1].y - eyeLandmarks[5].y
-    );
-    const vertical2 = Math.hypot(
-      eyeLandmarks[2].x - eyeLandmarks[4].x,
-      eyeLandmarks[2].y - eyeLandmarks[4].y
-    );
-    
-    // Calculate horizontal distance
-    const horizontal = Math.hypot(
-      eyeLandmarks[0].x - eyeLandmarks[3].x,
-      eyeLandmarks[0].y - eyeLandmarks[3].y
-    );
-    
-    // EAR formula
-    return (vertical1 + vertical2) / (2.0 * horizontal);
-  };
-
-  // Check if both participants are looking at each other
-  const checkMutualEyeContact = (
-    local: GazeData | null,
-    remote: GazeData | null
-  ): boolean => {
-    if (!local || !remote) return false;
-    if (!local.isLooking || !remote.isLooking) return false;
-
-    // Check if data is fresh (within last 500ms)
-    const now = Date.now();
-    if (
-      now - local.timestamp > 500 ||
-      now - remote.timestamp > 500
-    ) {
-      return false;
-    }
-
-    // Both users should be looking at the screen center
-    // In a real video chat, when you look at the camera, you're looking at the center
-    // So if both are looking at center (camera), they're making mutual eye contact
-    const localLookingAtCenter =
-      Math.abs(local.gazeX) < 0.3 && Math.abs(local.gazeY) < 0.3;
-    const remoteLookingAtCenter =
-      Math.abs(remote.gazeX) < 0.3 && Math.abs(remote.gazeY) < 0.3;
-
-    return localLookingAtCenter && remoteLookingAtCenter;
   };
 
   // Initialize MediaPipe FaceMesh
@@ -224,14 +148,31 @@ export function useLiveKitEyeContact(
       }
     };
 
-    const calculateGazeFromLandmarks = (result: any): GazeData => {
+    // Calculate Eye Aspect Ratio (EAR) for wink detection
+    const calculateEAR = (eyeLandmarks: any[]): number => {
+      // Calculate vertical distances
+      const vertical1 = Math.hypot(
+        eyeLandmarks[1].x - eyeLandmarks[5].x,
+        eyeLandmarks[1].y - eyeLandmarks[5].y
+      );
+      const vertical2 = Math.hypot(
+        eyeLandmarks[2].x - eyeLandmarks[4].x,
+        eyeLandmarks[2].y - eyeLandmarks[4].y
+      );
+      
+      // Calculate horizontal distance
+      const horizontal = Math.hypot(
+        eyeLandmarks[0].x - eyeLandmarks[3].x,
+        eyeLandmarks[0].y - eyeLandmarks[3].y
+      );
+      
+      // EAR formula
+      return (vertical1 + vertical2) / (2.0 * horizontal);
+    };
+
+    const calculateWink = (result: any): { isWinking: boolean; winkEye: 'left' | 'right' | null } => {
       if (!result || !result.faceLandmarks || result.faceLandmarks.length === 0) {
         return {
-          gazeX: 0,
-          gazeY: 0,
-          isLooking: false,
-          confidence: 0,
-          timestamp: Date.now(),
           isWinking: false,
           winkEye: null,
         };
@@ -463,18 +404,7 @@ export function useLiveKitEyeContact(
 
       const isLooking = confidence > 0.6;
 
-      return {
-        gazeX: Math.max(-1, Math.min(1, gazeX * 5)), // Scale to -1 to 1 range
-        gazeY: Math.max(-1, Math.min(1, gazeY * 5)),
-        isLooking,
-        confidence,
-        timestamp: Date.now(),
-        isWinking,
-        winkEye,
-        // Add raw blink values for debugging
-        leftBlink: leftEyeBlink,
-        rightBlink: rightEyeBlink,
-      } as any;
+      return { isWinking, winkEye };
     };
 
     const detect = (videoEl?: HTMLVideoElement) => {
@@ -569,22 +499,17 @@ export function useLiveKitEyeContact(
           return;
         }
         
-        const gazeData = calculateGazeFromLandmarks(result);
+        const { isWinking, winkEye } = calculateWink(result);
 
         // Update local state
-        setEyeContactState((prev) => {
-          const isMutual = checkMutualEyeContact(gazeData, prev.remoteGaze);
-          return {
-            ...prev,
-            localGaze: gazeData,
-            isMutualEyeContact: isMutual,
-            localWinking: gazeData.isWinking,
-            localWinkEye: gazeData.winkEye,
-          };
-        });
+        setEyeContactState((prev) => ({
+          ...prev,
+          localWinking: isWinking,
+          localWinkEye: winkEye,
+        }));
 
         // Send to remote participant
-        sendGazeData(gazeData);
+        sendWinkData({ isWinking, winkEye });
       } catch (error) {
         // Only log errors if we're not cleaning up
         if (!isCleaningUpRef.current) {
@@ -640,46 +565,6 @@ export function useLiveKitEyeContact(
       }, 50);
     };
   }, [localVideoElement, enabled]);
-
-  // Track eye contact duration
-  useEffect(() => {
-    if (eyeContactState.isMutualEyeContact) {
-      if (!eyeContactStartTime.current) {
-        eyeContactStartTime.current = Date.now();
-      }
-
-      // Update duration every 100ms
-      if (!eyeContactIntervalRef.current) {
-        eyeContactIntervalRef.current = setInterval(() => {
-          if (eyeContactStartTime.current) {
-            const duration = (Date.now() - eyeContactStartTime.current) / 1000;
-            setEyeContactState((prev) => ({
-              ...prev,
-              eyeContactDuration: duration,
-            }));
-          }
-        }, 100);
-      }
-    } else {
-      // Reset when eye contact breaks
-      eyeContactStartTime.current = null;
-      if (eyeContactIntervalRef.current) {
-        clearInterval(eyeContactIntervalRef.current);
-        eyeContactIntervalRef.current = null;
-      }
-      setEyeContactState((prev) => ({
-        ...prev,
-        eyeContactDuration: 0,
-      }));
-    }
-
-    return () => {
-      if (eyeContactIntervalRef.current) {
-        clearInterval(eyeContactIntervalRef.current);
-        eyeContactIntervalRef.current = null;
-      }
-    };
-  }, [eyeContactState.isMutualEyeContact]);
 
   return eyeContactState;
 }

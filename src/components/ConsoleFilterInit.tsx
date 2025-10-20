@@ -15,3 +15,4 @@ export default function ConsoleFilterInit() {
   return null; // This component doesn't render anything
 }
 
+
