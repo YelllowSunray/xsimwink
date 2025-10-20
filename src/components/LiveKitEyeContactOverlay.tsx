@@ -16,7 +16,7 @@ interface LiveKitEyeContactOverlayProps {
 
 interface GestureAnimation {
   id: string;
-  type: 'wink' | 'tongue' | 'kiss' | 'vTongue' | 'peace' | 'thumbsUp' | 'okSign' | 'rockOn';
+  type: 'wink' | 'tongue' | 'vTongue' | 'peace' | 'thumbsUp' | 'okSign' | 'rockOn';
   side?: 'left' | 'right';
   timestamp: number;
   emoji: string;
@@ -42,11 +42,9 @@ export default function LiveKitEyeContactOverlay({
     remoteWinking,
     localWinkEye,
     remoteWinkEye,
-    localTongueOut,
-    remoteTongueOut,
-    localKissing,
-    remoteKissing,
-    localVTongue,
+  localTongueOut,
+  remoteTongueOut,
+  localVTongue,
     remoteVTongue,
     localPeaceSign,
     remotePeaceSign,
@@ -122,9 +120,7 @@ export default function LiveKitEyeContactOverlay({
       addGestureAnimation(true, 'tongue', '👅');
     }
     
-    if (localKissing) {
-      addGestureAnimation(true, 'kiss', '💋');
-    }
+    // Kiss detection removed - was causing overload
     
     if (localVTongue) {
       addGestureAnimation(true, 'vTongue', '🥵💦'); // Hot face + water droplets
@@ -139,9 +135,7 @@ export default function LiveKitEyeContactOverlay({
       addGestureAnimation(false, 'tongue', '👅');
     }
     
-    if (remoteKissing) {
-      addGestureAnimation(false, 'kiss', '💋');
-    }
+    // Kiss detection removed - was causing overload
     
     if (remoteVTongue) {
       addGestureAnimation(false, 'vTongue', '🥵💦'); // Hot face + water droplets
@@ -238,10 +232,10 @@ export default function LiveKitEyeContactOverlay({
           className="absolute bottom-28 right-20 z-30"
             style={{
             animation: 'gestureFloat 2s ease-out forwards',
-          }}
-        >
+            }}
+          >
           <div className="text-8xl animate-bounce drop-shadow-2xl filter brightness-110 contrast-125" 
-               style={{
+                style={{
                  textShadow: '0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(255,255,255,0.6)',
                  transform: 'scale(1.2)',
                }}>

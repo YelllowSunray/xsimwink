@@ -14,7 +14,6 @@ interface GazeData {
   isWinking: boolean;
   winkEye: 'left' | 'right' | null;
   isTongueOut: boolean;
-  isKissing: boolean;
   isVTongue: boolean; // V-sign + tongue out combo
   isPeaceSign: boolean; // V-sign alone
   isThumbsUp: boolean;
@@ -39,8 +38,6 @@ interface EyeContactState {
   remoteWinkEye: 'left' | 'right' | null;
   localTongueOut: boolean;
   remoteTongueOut: boolean;
-  localKissing: boolean;
-  remoteKissing: boolean;
   localVTongue: boolean;
   remoteVTongue: boolean;
   localPeaceSign: boolean;
@@ -74,8 +71,6 @@ export function useLiveKitEyeContact(
     remoteWinkEye: null,
     localTongueOut: false,
     remoteTongueOut: false,
-    localKissing: false,
-    remoteKissing: false,
     localVTongue: false,
     remoteVTongue: false,
     localPeaceSign: false,
@@ -128,7 +123,7 @@ export function useLiveKitEyeContact(
   });
 
   const tongueStateRef = useRef({ isTongueOut: false, startTime: 0 });
-  const kissStateRef = useRef<number>(0); // Store last kiss timestamp
+  const lastGestureTime = useRef<number>(0); // Global cooldown for all gestures
 
   // Receive data from remote participant
   useDataChannel("eye-contact", (message) => {
@@ -137,14 +132,13 @@ export function useLiveKitEyeContact(
         new TextDecoder().decode(message.payload)
       );
       
-      // Handle wink, tongue, kiss, and all gesture data
+      // Handle wink, tongue, and all gesture data
       if (remoteData.isWinking !== undefined) {
         setEyeContactState((prev) => ({
           ...prev,
           remoteWinking: remoteData.isWinking,
           remoteWinkEye: remoteData.winkEye,
           remoteTongueOut: remoteData.isTongueOut || false,
-          remoteKissing: remoteData.isKissing || false,
           remoteVTongue: remoteData.isVTongue || false,
           remotePeaceSign: remoteData.isPeaceSign || false,
           remoteThumbsUp: remoteData.isThumbsUp || false,
@@ -191,7 +185,6 @@ export function useLiveKitEyeContact(
     isWinking: boolean; 
     winkEye: 'left' | 'right' | null; 
     isTongueOut: boolean; 
-    isKissing: boolean; 
     isVTongue: boolean;
     isPeaceSign: boolean;
     isThumbsUp: boolean;
@@ -613,11 +606,16 @@ export function useLiveKitEyeContact(
           const timeSinceLastSent = now - winkStateRef.current.lastSentWink;
           
           // Valid wink: 150ms-800ms duration, and haven't sent one in last 800ms
-          if (winkDuration >= 150 && winkDuration <= 800 && timeSinceLastSent > 800) {
+          // PLUS global 10-second cooldown for all gestures
+          const timeSinceLastGesture = now - lastGestureTime.current;
+          if (winkDuration >= 150 && winkDuration <= 800 && timeSinceLastSent > 800 && timeSinceLastGesture > 10000) {
             isWinking = true;
             winkEye = winkStateRef.current.winkEye;
             winkStateRef.current.lastSentWink = now;
+            lastGestureTime.current = now; // Update global cooldown
             console.log('😉✅ CONFIRMED WINK!', winkEye, 'eye - Duration:', winkDuration + 'ms');
+          } else if (timeSinceLastGesture <= 10000) {
+            console.log('😉⏳ Wink blocked by global 10s cooldown');
           }
           
           // Reset wink state
@@ -636,29 +634,18 @@ export function useLiveKitEyeContact(
         console.log('👅 Tongue score:', tongueOutScore.toFixed(3), '(threshold: 0.35)');
         
         // Harder threshold - must really stick tongue out
-        if (tongueOutScore > 0.35) {
+        // Add global 10-second cooldown for tongue detection
+        const now = Date.now();
+        const timeSinceLastGesture = now - lastGestureTime.current;
+        if (tongueOutScore > 0.35 && timeSinceLastGesture > 10000) {
           isTongueOut = true;
+          lastGestureTime.current = now; // Update global cooldown
           console.log('👅✅ TONGUE OUT TRIGGERED! Score:', tongueOutScore.toFixed(2));
+        } else if (tongueOutScore > 0.35 && timeSinceLastGesture <= 10000) {
+          console.log('👅⏳ Tongue blocked by global 10s cooldown');
         }
         
-        // KISS/PUCKER DETECTION - SHOW ALL SCORES
-        const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
-        
-        // Debug logging - ALWAYS show pucker score (every frame)
-        console.log('💋 Pucker score:', mouthPuckerScore.toFixed(3), '(threshold: 0.95 - ULTRA HARD)');
-        
-        // ULTRA hard threshold - must be > 0.95 to trigger (only extremely deliberate kiss/pucker)
-        if (mouthPuckerScore > 0.95) {
-          // Add cooldown to prevent spam
-          const now = Date.now();
-          if (!kissStateRef.current || now - kissStateRef.current > 3000) { // 3 second cooldown
-            isKissing = true;
-            kissStateRef.current = now;
-            console.log('💋✅ KISS TRIGGERED! Score:', mouthPuckerScore.toFixed(2));
-          } else {
-            console.log('💋⏳ Kiss on cooldown, ignoring...');
-          }
-        }
+        // KISS DETECTION REMOVED - was causing overload
         
         eyeOpennessConfidence = 1 - (leftEyeBlink + rightEyeBlink) / 2;
       } else {
@@ -903,9 +890,14 @@ export function useLiveKitEyeContact(
                   vSignData.handY > 0.3 && vSignData.handY < 0.7 && // Vertical: mouth region
                   vSignData.handX > 0.3 && vSignData.handX < 0.7;    // Horizontal: center
                 
-                if (nearMouth) {
+                // Add global 10-second cooldown for V-Tongue combo
+                const vTongueTimeSinceLastGesture = Date.now() - lastGestureTime.current;
+                if (nearMouth && vTongueTimeSinceLastGesture > 10000) {
                   isVTongue = true;
+                  lastGestureTime.current = Date.now(); // Update global cooldown
                   console.log('✌️👅 V-TONGUE COMBO DETECTED! Hand:', vSignData.handY.toFixed(2), 'Tongue: yes');
+                } else if (nearMouth && vTongueTimeSinceLastGesture <= 10000) {
+                  console.log('✌️👅⏳ V-Tongue blocked by global 10s cooldown');
                 }
               }
               
@@ -962,7 +954,6 @@ export function useLiveKitEyeContact(
           isWinking,
           winkEye,
           isTongueOut,
-          isKissing,
           isVTongue,
           isPeaceSign,
           isThumbsUp,
@@ -1040,9 +1031,8 @@ export function useLiveKitEyeContact(
             ...prev,
           localWinking: isWinking,
           localWinkEye: winkEye,
-          localTongueOut: isTongueOut,
-          localKissing: isKissing,
-          localVTongue: isVTongue,
+        localTongueOut: isTongueOut,
+        localVTongue: isVTongue,
           localPeaceSign: isPeaceSign,
           localThumbsUp: isThumbsUp,
           localOKSign: isOKSign,

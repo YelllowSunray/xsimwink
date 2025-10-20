@@ -29,6 +29,7 @@ export default function GestureOverlay({
   const lastDetectionTime = useRef<number>(0);
   const isCleaningUpRef = useRef<boolean>(false);
   const lastGesturesRef = useRef<{[key: string]: number}>({});
+  const lastGestureTime = useRef<number>(0); // Global 10-second cooldown for all gestures
 
   // Wink temporal detection
   const winkStateRef = useRef<{
@@ -306,9 +307,12 @@ export default function GestureOverlay({
             const winkDuration = currentTime - winkStateRef.current.startTime;
             const timeSinceLastSent = currentTime - winkStateRef.current.lastSentWink;
             
-            if (winkDuration >= 150 && winkDuration <= 800 && timeSinceLastSent > 800) {
+            // Add global 10-second cooldown
+            const timeSinceLastGesture = currentTime - lastGestureTime.current;
+            if (winkDuration >= 150 && winkDuration <= 800 && timeSinceLastSent > 800 && timeSinceLastGesture > 10000) {
               addGestureAnimation('wink', '😉', winkStateRef.current.winkEye || undefined);
               winkStateRef.current.lastSentWink = currentTime;
+              lastGestureTime.current = currentTime; // Update global cooldown
             }
             
             winkStateRef.current = {
@@ -335,27 +339,7 @@ export default function GestureOverlay({
             tongueStateRef.current = { isTongueOut: false, startTime: 0 };
           }
           
-          // Kiss detection
-          const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
-          const KISS_THRESHOLD = 0.95; // Increased from 0.92 to make it ultra hard
-          
-          if (mouthPuckerScore > KISS_THRESHOLD) {
-            if (!kissStateRef.current.isKissing) {
-              kissStateRef.current = { isKissing: true, startTime: currentTime };
-            }
-          } else {
-            if (kissStateRef.current.isKissing) {
-              const kissDuration = currentTime - kissStateRef.current.startTime;
-              const timeSinceLastKiss = currentTime - (lastGesturesRef.current.kiss || 0);
-              
-              // Require minimum duration and cooldown to prevent spam
-              if (kissDuration >= 200 && timeSinceLastKiss > 3000) { // 200ms duration, 3s cooldown
-                addGestureAnimation('kiss', '💋');
-                lastGesturesRef.current.kiss = currentTime;
-              }
-              kissStateRef.current = { isKissing: false, startTime: 0 };
-            }
-          }
+          // Kiss detection removed - was causing overload
         }
 
         // Hand detection
