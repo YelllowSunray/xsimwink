@@ -337,7 +337,7 @@ export default function GestureOverlay({
           
           // Kiss detection
           const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
-          const KISS_THRESHOLD = 0.75;
+          const KISS_THRESHOLD = 0.85; // Increased from 0.75 to make it harder
           
           if (mouthPuckerScore > KISS_THRESHOLD) {
             if (!kissStateRef.current.isKissing) {
