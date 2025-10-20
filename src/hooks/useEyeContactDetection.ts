@@ -140,17 +140,33 @@ export function useEyeContactDetection(
         avgGazeOffsetY * avgGazeOffsetY
       );
 
+      // Device-specific gaze thresholds for better accuracy
+      // Mobile devices (iPhone) tend to have different camera angles and distances
+      const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+      
+      // Adjust thresholds based on device type
+      const gazeThreshold = isMobile ? 0.25 : 0.2; // More lenient for mobile
+      const centerThreshold = isMobile ? 0.18 : 0.15; // Adjusted for mobile cameras
+      
       // When looking at camera, pupils should be centered (low offset)
-      // Typical centered gaze: distance < 0.15
-      // Looking away: distance > 0.25
-      const gazeCenterConfidence = Math.max(0, 1 - (gazeDistance / 0.2));
+      // Mobile: distance < 0.18, Desktop: distance < 0.15
+      // Looking away: Mobile > 0.3, Desktop > 0.25
+      const gazeCenterConfidence = Math.max(0, 1 - (gazeDistance / gazeThreshold));
+      
+      console.log(`📱 Device: ${isMobile ? 'Mobile' : 'Desktop'}, Gaze Distance: ${gazeDistance.toFixed(3)}, Threshold: ${gazeThreshold}, Confidence: ${gazeCenterConfidence.toFixed(3)}`);
 
       // Check head orientation (face should be relatively frontal)
+      // Mobile devices often have different viewing angles
       const eyeLineAngle = Math.atan2(
         rightEyeCenter.y - leftEyeCenter.y,
         rightEyeCenter.x - leftEyeCenter.x
       );
-      const headTiltConfidence = Math.max(0, 1 - Math.abs(eyeLineAngle) * 5);
+      
+      // More lenient head tilt tolerance for mobile devices
+      const tiltMultiplier = isMobile ? 3 : 5; // Less strict for mobile
+      const headTiltConfidence = Math.max(0, 1 - Math.abs(eyeLineAngle) * tiltMultiplier);
+      
+      console.log(`📐 Head Tilt Angle: ${(eyeLineAngle * 180 / Math.PI).toFixed(1)}°, Confidence: ${headTiltConfidence.toFixed(3)}`);
 
       // Check eye openness using blendshapes with temporal validation
       let eyeOpennessConfidence = 0.85; // default assumption: eyes open
@@ -217,18 +233,24 @@ export function useEyeContactDetection(
         eyeOpennessConfidence = 1 - ((leftEyeBlink + rightEyeBlink) / 2);
       }
 
-      // Combine all factors:
-      // - Gaze must be centered (most important): 60%
-      // - Eyes must be open: 25%
-      // - Head must be frontal: 15%
+      // Device-specific confidence weighting and thresholds
+      // Mobile cameras often need different weighting due to camera position/angle
+      const gazeWeight = isMobile ? 0.65 : 0.60; // More weight on gaze for mobile
+      const eyeWeight = isMobile ? 0.25 : 0.25;  // Same eye openness weight
+      const headWeight = isMobile ? 0.10 : 0.15; // Less weight on head tilt for mobile
+      
+      // Combine all factors for device-optimized eye contact detection
       const overallConfidence = (
-        gazeCenterConfidence * 0.60 +
-        eyeOpennessConfidence * 0.25 +
-        headTiltConfidence * 0.15
+        gazeCenterConfidence * gazeWeight +
+        eyeOpennessConfidence * eyeWeight +
+        headTiltConfidence * headWeight
       );
 
-      // Threshold for "making eye contact"
-      const isLooking = overallConfidence > 0.60;
+      // Device-specific confidence thresholds
+      const confidenceThreshold = isMobile ? 0.55 : 0.60; // More lenient for mobile
+      const isLooking = overallConfidence > confidenceThreshold;
+      
+      console.log(`👁️ Device: ${isMobile ? 'Mobile' : 'Desktop'}, Confidence: ${overallConfidence.toFixed(3)}, Threshold: ${confidenceThreshold}, Looking: ${isLooking}`);
 
       // Debug logging (can be removed in production)
       if (Math.random() < 0.05) { // Log occasionally to avoid spam
