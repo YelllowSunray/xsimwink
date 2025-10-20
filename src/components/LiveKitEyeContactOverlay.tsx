@@ -231,7 +231,7 @@ export default function LiveKitEyeContactOverlay({
 
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
-      {/* Local Wink Animations (bottom-right where local video is) */}
+      {/* Local Gesture Animations (bottom-right where local video is) */}
       {gesturesEnabled && localGestureAnimations.map((gesture) => (
           <div
           key={gesture.id}
@@ -240,24 +240,32 @@ export default function LiveKitEyeContactOverlay({
             animation: 'gestureFloat 2s ease-out forwards',
           }}
         >
-          <div className="text-6xl animate-pulse drop-shadow-lg">
+          <div className="text-8xl animate-bounce drop-shadow-2xl filter brightness-110 contrast-125" 
+               style={{
+                 textShadow: '0 0 20px rgba(255,255,255,0.8), 0 0 40px rgba(255,255,255,0.6)',
+                 transform: 'scale(1.2)',
+               }}>
             {gesture.emoji}
           </div>
         </div>
       ))}
 
-      {/* Remote Wink Animations (center of screen where remote video is) */}
+      {/* Remote Gesture Animations (center of screen where remote video is) */}
       {gesturesEnabled && remoteGestureAnimations.map((gesture, index) => (
         <div
           key={gesture.id}
           className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30"
           style={{
             animation: 'gestureFloat 2s ease-out forwards',
-            marginLeft: `${(index % 3 - 1) * 100}px`,
-            marginTop: `${(Math.floor(index / 3) - 1) * 100}px`,
+            marginLeft: `${(index % 3 - 1) * 120}px`,
+            marginTop: `${(Math.floor(index / 3) - 1) * 120}px`,
           }}
         >
-          <div className="text-8xl animate-pulse drop-shadow-2xl">
+          <div className="text-9xl animate-bounce drop-shadow-2xl filter brightness-110 contrast-125" 
+               style={{
+                 textShadow: '0 0 30px rgba(255,255,255,0.9), 0 0 60px rgba(255,255,255,0.7)',
+                 transform: 'scale(1.3)',
+               }}>
             {gesture.emoji}
           </div>
         </div>
@@ -290,14 +298,20 @@ export default function LiveKitEyeContactOverlay({
         @keyframes gestureFloat {
           0% {
             opacity: 1;
-            transform: scale(1) translateY(0) rotate(0deg);
+            transform: scale(1.2) translateY(0) rotate(0deg);
+          }
+          25% {
+            transform: scale(1.6) translateY(-20px) rotate(5deg);
           }
           50% {
-            transform: scale(1.3) translateY(-30px) rotate(10deg);
+            transform: scale(1.8) translateY(-40px) rotate(-5deg);
+          }
+          75% {
+            transform: scale(1.5) translateY(-50px) rotate(3deg);
           }
           100% {
             opacity: 0;
-            transform: scale(0.8) translateY(-80px) rotate(-10deg);
+            transform: scale(1.0) translateY(-80px) rotate(0deg);
           }
         }
       `}</style>

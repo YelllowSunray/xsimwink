@@ -437,7 +437,11 @@ export default function GestureOverlay({
             animation: 'gestureFloat 2s ease-out forwards',
           }}
         >
-          <div className="text-6xl animate-pulse drop-shadow-lg">
+          <div className="text-9xl animate-bounce drop-shadow-2xl filter brightness-110 contrast-125" 
+               style={{
+                 textShadow: '0 0 30px rgba(255,255,255,0.9), 0 0 60px rgba(255,255,255,0.7)',
+                 transform: 'scale(1.3)',
+               }}>
             {gesture.emoji}
           </div>
         </div>
@@ -448,14 +452,20 @@ export default function GestureOverlay({
         @keyframes gestureFloat {
           0% {
             opacity: 1;
-            transform: scale(1) translateY(0) rotate(0deg);
+            transform: scale(1.2) translateY(0) rotate(0deg);
+          }
+          25% {
+            transform: scale(1.6) translateY(-20px) rotate(5deg);
           }
           50% {
-            transform: scale(1.3) translateY(-30px) rotate(10deg);
+            transform: scale(1.8) translateY(-40px) rotate(-5deg);
+          }
+          75% {
+            transform: scale(1.5) translateY(-50px) rotate(3deg);
           }
           100% {
             opacity: 0;
-            transform: scale(0.8) translateY(-60px) rotate(-5deg);
+            transform: scale(1.0) translateY(-80px) rotate(0deg);
           }
         }
       `}</style>
