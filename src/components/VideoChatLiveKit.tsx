@@ -54,11 +54,12 @@ import {
   useRoomContext,
   useDataChannel,
 } from "@livekit/components-react";
-import { Track, DataPacket_Kind } from "livekit-client";
+import { Track, DataPacket_Kind, VideoPresets } from "livekit-client";
 import { BackgroundBlur } from "@livekit/track-processors";
 import { VideoStorageService } from "@/utils/videoStorage";
 import { radioStations, type RadioStation } from "@/constants/radioStations";
 import RadioPlayer from "@/components/RadioPlayer";
+import LiveKitEyeContactOverlay from "@/components/LiveKitEyeContactOverlay";
 
 interface VideoChatLiveKitProps {
   partnerId: string;
@@ -1478,13 +1479,33 @@ function VideoChatLiveKitInner({
   return (
     <div className="fixed inset-0 bg-black z-50">
       <LiveKitRoom
-        video={false}
-        audio={false}
+        video={true}
+        audio={true}
         token={token}
         serverUrl={serverUrl}
         connect={true}
         onDisconnected={handleDisconnect}
         style={{ height: "100vh" }}
+        options={{
+          // iOS-specific options
+          adaptiveStream: true,
+          dynacast: true,
+          publishDefaults: {
+            videoSimulcastLayers: [
+              { resolution: VideoPresets.h90, encoding: { maxBitrate: 100_000 } },
+              { resolution: VideoPresets.h180, encoding: { maxBitrate: 300_000 } },
+              { resolution: VideoPresets.h360, encoding: { maxBitrate: 500_000 } }
+            ],
+            videoCodec: 'h264', // Better iOS compatibility
+          },
+          // iOS Safari compatibility
+          webRtcConfig: {
+            iceServers: [
+              { urls: 'stun:stun.l.google.com:19302' },
+              { urls: 'stun:stun1.l.google.com:19302' }
+            ]
+          }
+        }}
       >
         {/* Custom UI */}
         <CustomVideoUI
@@ -1628,8 +1649,85 @@ function CustomVideoUI({
   const [isBackgroundBlurred, setIsBackgroundBlurred] = React.useState(false);
   const backgroundProcessorRef = React.useRef<any>(null);
   
+  // iOS-specific state for user gesture handling
+  const [needsUserGesture, setNeedsUserGesture] = useState(false);
+  const [isIOS, setIsIOS] = useState(false);
+  
   // More options menu state
   const [showMoreMenu, setShowMoreMenu] = React.useState(false);
+  
+  // Video refs for eye contact detection
+  const localVideoRef = React.useRef<HTMLVideoElement>(null);
+  const remoteVideoRef = React.useRef<HTMLVideoElement>(null);
+  const [eyeContactEnabled, setEyeContactEnabled] = React.useState(true);
+  
+  // Attach video elements for eye contact detection
+  React.useEffect(() => {
+    const attachVideoRefs = () => {
+      const videos = document.querySelectorAll('video');
+      
+      videos.forEach((video, index) => {
+        // Skip if already attached
+        if (video === localVideoRef.current || video === remoteVideoRef.current) return;
+        
+        // Heuristic: Mirrored/transformed video = local, others = remote
+        const style = window.getComputedStyle(video);
+        const transform = style.transform;
+        const isLocal = transform.includes('matrix(-1') || video.muted;
+        
+        if (isLocal && !localVideoRef.current) {
+          localVideoRef.current = video;
+          console.log('✅ Local video ref attached for eye contact:', video.videoWidth, 'x', video.videoHeight);
+        } else if (!isLocal && !remoteVideoRef.current && video.videoWidth > 0) {
+          remoteVideoRef.current = video;
+          console.log('✅ Remote video ref attached for eye contact:', video.videoWidth, 'x', video.videoHeight);
+        }
+      });
+    };
+    
+    // Try immediately and then periodically
+    attachVideoRefs();
+    const interval = setInterval(attachVideoRefs, 1000);
+    
+    return () => clearInterval(interval);
+  }, []);
+  
+  // Detect iOS on mount
+  React.useEffect(() => {
+    const userAgent = navigator.userAgent;
+    const ios = /iPad|iPhone|iPod/.test(userAgent);
+    setIsIOS(ios);
+    console.log(`📱 Device detection: iOS = ${ios}`);
+  }, []);
+
+  // Monitor video elements for iOS autoplay issues
+  React.useEffect(() => {
+    if (!isIOS) return;
+
+    const checkVideoPlayback = () => {
+      const videos = document.querySelectorAll('video');
+      let hasPausedVideos = false;
+      
+      videos.forEach((video, index) => {
+        console.log(`Video ${index}: paused=${video.paused}, readyState=${video.readyState}, srcObject=${!!video.srcObject}`);
+        
+        if (video.srcObject && video.paused && video.readyState >= 2) {
+          hasPausedVideos = true;
+        }
+      });
+      
+      if (hasPausedVideos && !needsUserGesture) {
+        console.log('⚠️ iOS: Detected paused videos, showing user gesture button');
+        setNeedsUserGesture(true);
+      }
+    };
+
+    // Check immediately and then periodically
+    checkVideoPlayback();
+    const interval = setInterval(checkVideoPlayback, 2000);
+
+    return () => clearInterval(interval);
+  }, [isIOS, needsUserGesture]);
   
   // Listen for radio control from other users
   // Radio is ALWAYS synced - both users listen to the same station
@@ -1893,7 +1991,12 @@ function CustomVideoUI({
       }
       
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { deviceId: { exact: deviceId }, width: 1280, height: 720 },
+        video: { 
+          deviceId: { exact: deviceId }, 
+          facingMode: 'user',
+          width: { ideal: 640, max: 1280 }, 
+          height: { ideal: 480, max: 720 } 
+        },
         audio: false
       });
       
@@ -2049,9 +2152,15 @@ function CustomVideoUI({
         
         console.log('📹 Publishing camera and microphone...');
         
-        // Get raw camera and mic with noise suppression enabled
+        // iOS-compatible video constraints
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const videoConstraints = isIOS 
+          ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+          : { width: 1280, height: 720 };
+        
+        // Get raw camera and mic with iOS-optimized constraints
         const stream = await navigator.mediaDevices.getUserMedia({
-          video: { width: 1280, height: 720 },
+          video: videoConstraints,
           audio: {
             echoCancellation: true,
             noiseSuppression: true,
@@ -2130,7 +2239,11 @@ function CustomVideoUI({
           
           // Get fresh raw camera
           const stream = await navigator.mediaDevices.getUserMedia({
-            video: { width: 1280, height: 720 }
+            video: { 
+              facingMode: 'user',
+              width: { ideal: 640, max: 1280 }, 
+              height: { ideal: 480, max: 720 } 
+            }
           });
           
           const videoTrack = stream.getVideoTracks()[0];
@@ -2439,6 +2552,47 @@ function CustomVideoUI({
           {remoteParticipants && remoteParticipants.length > 0 && remoteParticipants[0] ? (
             <>
               {renderParticipantTile(remoteParticipants[0], false, true)}
+              
+              {/* iOS User Gesture Overlay */}
+              {isIOS && needsUserGesture && (
+                <div className="absolute inset-0 flex items-center justify-center bg-black/70 z-50">
+                  <div className="text-center">
+                    <div className="text-white text-xl mb-4">📱 iOS Video Playback</div>
+                    <p className="text-gray-300 mb-6">Tap to start the video stream</p>
+                    <button
+                      onClick={async () => {
+                        try {
+                          // Try to play all video elements
+                          const videos = document.querySelectorAll('video');
+                          for (const video of videos) {
+                            if (video.paused) {
+                              await video.play();
+                            }
+                          }
+                          setNeedsUserGesture(false);
+                          console.log('✅ Video started after user gesture');
+                        } catch (error) {
+                          console.error('❌ Failed to play video:', error);
+                        }
+                      }}
+                      className="px-8 py-4 bg-pink-600 text-white rounded-lg font-semibold shadow-lg hover:bg-pink-700 transition"
+                    >
+                      ▶️ Tap to Start Video
+                    </button>
+                  </div>
+                </div>
+              )}
+              
+              {/* Eye Contact & Wink Detection Overlay */}
+              {eyeContactEnabled && (
+                <LiveKitEyeContactOverlay
+                  localVideoRef={localVideoRef}
+                  remoteVideoRef={remoteVideoRef}
+                  enabled={true}
+                  showDebugInfo={false}
+                />
+              )}
+              
               {/* Local Video (Picture-in-Picture) */}
               {localParticipant && localParticipant.identity && (
                 <div className="absolute top-4 right-4 w-36 h-28 md:w-48 md:h-36 rounded-lg overflow-hidden border-2 border-pink-500 shadow-2xl">

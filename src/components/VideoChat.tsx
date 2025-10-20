@@ -4,6 +4,8 @@ import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { VideoStorageService } from "@/utils/videoStorage";
 import { WebRTCService } from "@/services/WebRTCService";
+import { useEyeContactDetection } from "@/hooks/useEyeContactDetection";
+import VideoDebugger from "./VideoDebugger";
 
 interface VideoChatProps {
   partnerId: string;
@@ -22,6 +24,8 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
   const [recordingPrice, setRecordingPrice] = useState(9.99);
   const [showRecordingSettings, setShowRecordingSettings] = useState(false);
   const [needsUserGesture, setNeedsUserGesture] = useState(false);
+  const [remoteIsLookingAtCamera, setRemoteIsLookingAtCamera] = useState(false);
+  const [bothMakingEyeContact, setBothMakingEyeContact] = useState(false);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -33,6 +37,12 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
 
   const { user, userProfile, addSessionHistory, addRecording, updateWallet } = useAuth();
 
+  // Eye contact detection for local video
+  const { isLookingAtCamera: localIsLookingAtCamera } = useEyeContactDetection(
+    localVideoRef.current,
+    connectionStatus === "connected" && isVideoEnabled
+  );
+
   useEffect(() => {
     const setupWebRTC = async () => {
       try {
@@ -40,8 +50,14 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
 
         webrtcRef.current = new WebRTCService(user.uid, "https://xoxosocketbackend.onrender.com");
 
+        // iOS-compatible video constraints
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+        const videoConstraints = isIOS 
+          ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+          : { width: 1280, height: 720 };
+        
         const stream = await webrtcRef.current.initializeLocalStream({
-          video: { width: 1280, height: 720 },
+          video: videoConstraints,
           audio: true,
         });
 
@@ -53,10 +69,20 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
         webrtcRef.current.onRemoteStream = (remoteStream) => {
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = remoteStream;
-            remoteVideoRef.current.play?.().catch(() => {
-              // Autoplay may be blocked (especially on mobile Safari). Ask for a tap.
-              setNeedsUserGesture(true);
-            });
+            
+            // iOS Safari requires user gesture for video playback
+            const playVideo = async () => {
+              try {
+                await remoteVideoRef.current?.play();
+                console.log('✅ Remote video playing');
+              } catch (error) {
+                console.log('⚠️ Autoplay blocked, user gesture required');
+                setNeedsUserGesture(true);
+              }
+            };
+            
+            // Try to play immediately, fallback to user gesture if needed
+            playVideo();
           }
           setConnectionStatus("connected");
         };
@@ -70,6 +96,10 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
         webrtcRef.current.onUserLeft = () => {
           setConnectionStatus("disconnected");
           onEndCall();
+        };
+
+        webrtcRef.current.onEyeContactData = (isLooking: boolean) => {
+          setRemoteIsLookingAtCamera(isLooking);
         };
 
         const roomId = [user.uid, partnerId].sort().join('_');
@@ -97,6 +127,19 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
       }
     };
   }, [partnerId, user?.uid]);
+
+  // Send local eye contact status to remote peer
+  useEffect(() => {
+    if (connectionStatus === "connected" && webrtcRef.current) {
+      webrtcRef.current.sendEyeContactStatus(localIsLookingAtCamera);
+    }
+  }, [localIsLookingAtCamera, connectionStatus]);
+
+  // Detect when both participants are making eye contact
+  useEffect(() => {
+    const isBothLooking = localIsLookingAtCamera && remoteIsLookingAtCamera;
+    setBothMakingEyeContact(isBothLooking);
+  }, [localIsLookingAtCamera, remoteIsLookingAtCamera]);
 
   const toggleVideo = () => {
     const next = !isVideoEnabled;
@@ -227,21 +270,34 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
           ref={remoteVideoRef}
           autoPlay
           playsInline
+          muted={false}
+          controls={false}
           className="w-full h-full object-contain"
+          style={{ backgroundColor: '#000' }}
         />
 
           {needsUserGesture && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70">
-              <button
-                onClick={() => {
-                  if (remoteVideoRef.current) {
-                    remoteVideoRef.current.play?.().then(() => setNeedsUserGesture(false));
-                  }
-                }}
-                className="px-6 py-3 bg-pink-600 text-white rounded-lg font-semibold shadow-lg"
-              >
-                Tap to start stream
-              </button>
+              <div className="text-center">
+                <div className="text-white text-xl mb-4">📱 iOS Video Playback</div>
+                <p className="text-gray-300 mb-6">Tap to start the video stream</p>
+                <button
+                  onClick={async () => {
+                    if (remoteVideoRef.current) {
+                      try {
+                        await remoteVideoRef.current.play();
+                        setNeedsUserGesture(false);
+                        console.log('✅ Video started after user gesture');
+                      } catch (error) {
+                        console.error('❌ Failed to play video:', error);
+                      }
+                    }
+                  }}
+                  className="px-8 py-4 bg-pink-600 text-white rounded-lg font-semibold shadow-lg hover:bg-pink-700 transition"
+                >
+                  ▶️ Tap to Start Video
+                </button>
+              </div>
             </div>
           )}
         
@@ -272,6 +328,23 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
           )}
         </div>
 
+        {/* Eye Contact Indicator */}
+        {bothMakingEyeContact && (
+          <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 pointer-events-none">
+            <div className="flex flex-col items-center animate-pulse">
+              <div className="relative">
+                <div className="absolute inset-0 bg-pink-500 blur-3xl opacity-50 rounded-full animate-ping"></div>
+                <div className="relative bg-gradient-to-br from-pink-500 to-purple-600 rounded-full p-6 shadow-2xl">
+                  <svg className="w-16 h-16 text-white" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M3.172 5.172a4 4 0 015.656 0L10 6.343l1.172-1.171a4 4 0 115.656 5.656L10 17.657l-6.828-6.829a4 4 0 010-5.656z" clipRule="evenodd" />
+                  </svg>
+                </div>
+              </div>
+              <p className="mt-4 text-white text-xl font-bold drop-shadow-lg">Eye Contact</p>
+            </div>
+          </div>
+        )}
+
         {/* Top Bar */}
         <div className="absolute top-0 left-0 right-0 p-3 md:p-4 bg-gradient-to-b from-black/80 to-transparent">
           <div className="flex items-center justify-between">
@@ -280,6 +353,15 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
               <div className="flex items-center gap-2 mt-1">
                 <div className={`w-2 h-2 rounded-full ${connectionStatus === "connected" ? "bg-green-500" : "bg-yellow-500"}`}></div>
                 <span className="text-gray-300 text-sm capitalize">{connectionStatus}</span>
+                {/* Eye contact status indicators */}
+                {connectionStatus === "connected" && (
+                  <div className="flex items-center gap-1 ml-2">
+                    <span className="text-xs text-gray-400">👁️</span>
+                    <span className={`text-xs ${localIsLookingAtCamera ? "text-green-400" : "text-gray-500"}`}>You</span>
+                    <span className="text-xs text-gray-400">/</span>
+                    <span className={`text-xs ${remoteIsLookingAtCamera ? "text-green-400" : "text-gray-500"}`}>Them</span>
+                  </div>
+                )}
               </div>
             </div>
             <div className="text-white text-lg font-mono">
@@ -420,6 +502,13 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
           transform: scaleX(-1);
         }
       `}</style>
+      
+      {/* Debug component for development */}
+      <VideoDebugger 
+        localVideoRef={localVideoRef}
+        remoteVideoRef={remoteVideoRef}
+        connectionStatus={connectionStatus}
+      />
     </div>
   );
 }

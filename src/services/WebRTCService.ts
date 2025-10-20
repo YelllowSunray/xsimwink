@@ -27,6 +27,7 @@ export class WebRTCService {
   private ignoreOffer = false;
   private isSettingRemoteAnswerPending = false;
   private pendingIceCandidates: RTCIceCandidate[] = [];
+  private dataChannel: RTCDataChannel | null = null;
 
   // Configuration for STUN/TURN servers (env-driven with sensible defaults)
   private config: WebRTCConfig = (() => {
@@ -57,6 +58,7 @@ export class WebRTCService {
   public onUserJoined?: (userId: string) => void;
   public onUserLeft?: (userId: string) => void;
   public onError?: (error: Error) => void;
+  public onEyeContactData?: (isLookingAtCamera: boolean) => void;
 
   constructor(userId: string, signalingServerUrl?: string) {
     this.userId = userId;
@@ -139,8 +141,34 @@ export class WebRTCService {
 
   async initializeLocalStream(constraints: MediaStreamConstraints = { video: true, audio: true }): Promise<MediaStream> {
     try {
+      // iOS-specific constraints
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+      
+      if (isIOS && constraints.video) {
+        // iOS prefers simpler constraints
+        constraints.video = {
+          facingMode: 'user',
+          width: { ideal: 640, max: 1280 },
+          height: { ideal: 480, max: 720 }
+        };
+        console.log('📱 Using iOS-optimized video constraints');
+      }
+      
       this.localStream = await navigator.mediaDevices.getUserMedia(constraints);
       console.log('Local stream initialized');
+      
+      // Log stream details for debugging
+      const videoTracks = this.localStream.getVideoTracks();
+      if (videoTracks.length > 0) {
+        const settings = videoTracks[0].getSettings();
+        console.log('📹 Video track settings:', {
+          width: settings.width,
+          height: settings.height,
+          frameRate: settings.frameRate,
+          facingMode: settings.facingMode
+        });
+      }
+      
       return this.localStream;
     } catch (error) {
       console.error('Error accessing media devices:', error);
@@ -193,6 +221,9 @@ export class WebRTCService {
       this.peerConnection.addTransceiver('audio', { direction: 'sendrecv' });
     } catch {}
 
+    // Setup data channel for eye contact detection
+    this.setupDataChannel();
+
     // Add local stream tracks
     if (this.localStream) {
       this.localStream.getTracks().forEach(track => {
@@ -205,6 +236,7 @@ export class WebRTCService {
     // Handle remote stream
     this.peerConnection.ontrack = (event) => {
       console.log('Received remote track:', event.track?.kind);
+      
       if (event.streams && event.streams[0]) {
         this.remoteStream = event.streams[0];
       } else {
@@ -212,6 +244,20 @@ export class WebRTCService {
         if (!this.remoteStream) this.remoteStream = new MediaStream();
         this.remoteStream.addTrack(event.track);
       }
+      
+      // Log remote stream details for debugging
+      if (this.remoteStream) {
+        const videoTracks = this.remoteStream.getVideoTracks();
+        if (videoTracks.length > 0) {
+          const settings = videoTracks[0].getSettings();
+          console.log('📹 Remote video track settings:', {
+            width: settings.width,
+            height: settings.height,
+            frameRate: settings.frameRate
+          });
+        }
+      }
+      
       if (this.onRemoteStream && this.remoteStream) {
         this.onRemoteStream(this.remoteStream);
       }
@@ -505,5 +551,72 @@ export class WebRTCService {
 
   isConnected(): boolean {
     return this.peerConnection?.connectionState === 'connected';
+  }
+
+  // Data Channel Methods for Eye Contact Detection
+  private setupDataChannel(): void {
+    if (!this.peerConnection) return;
+
+    // Listen for incoming data channels (when remote peer creates one)
+    this.peerConnection.ondatachannel = (event) => {
+      console.log('📡 Received data channel');
+      this.dataChannel = event.channel;
+      this.setupDataChannelListeners();
+    };
+
+    // Create data channel if we're the initiator
+    if (this.isInitiator) {
+      try {
+        this.dataChannel = this.peerConnection.createDataChannel('eyeContact', {
+          ordered: false, // We don't need ordering for real-time updates
+          maxRetransmits: 0, // Don't retransmit - we'll send fresh data
+        });
+        console.log('📡 Created data channel');
+        this.setupDataChannelListeners();
+      } catch (error) {
+        console.error('Failed to create data channel:', error);
+      }
+    }
+  }
+
+  private setupDataChannelListeners(): void {
+    if (!this.dataChannel) return;
+
+    this.dataChannel.onopen = () => {
+      console.log('📡 Data channel opened');
+    };
+
+    this.dataChannel.onclose = () => {
+      console.log('📡 Data channel closed');
+    };
+
+    this.dataChannel.onerror = (error) => {
+      console.error('📡 Data channel error:', error);
+    };
+
+    this.dataChannel.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'eyeContact' && this.onEyeContactData) {
+          this.onEyeContactData(data.isLookingAtCamera);
+        }
+      } catch (error) {
+        console.error('Error parsing data channel message:', error);
+      }
+    };
+  }
+
+  sendEyeContactStatus(isLookingAtCamera: boolean): void {
+    if (this.dataChannel && this.dataChannel.readyState === 'open') {
+      try {
+        this.dataChannel.send(JSON.stringify({
+          type: 'eyeContact',
+          isLookingAtCamera,
+          timestamp: Date.now(),
+        }));
+      } catch (error) {
+        console.error('Error sending eye contact data:', error);
+      }
+    }
   }
 }
