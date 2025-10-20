@@ -261,14 +261,14 @@ export function useLiveKitEyeContact(
         const handLandmarker = await HandLandmarker.createFromOptions(vision, {
           baseOptions: {
             modelAssetPath:
-              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task",
+              "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task",
             delegate: "GPU",
           },
           runningMode: "VIDEO",
-          numHands: 1,
-          minHandDetectionConfidence: 0.5,
-          minHandPresenceConfidence: 0.5,
-          minTrackingConfidence: 0.5,
+          numHands: 2, // Allow detecting both hands
+          minHandDetectionConfidence: 0.3, // Lower threshold for better detection
+          minHandPresenceConfidence: 0.3,
+          minTrackingConfidence: 0.3,
         });
 
         handLandmarkerRef.current = handLandmarker;
@@ -863,6 +863,16 @@ export function useLiveKitEyeContact(
               performance.now()
             );
             
+            // Debug: Log hand detection attempts
+            if (Math.random() < 0.01) { // Log occasionally to avoid spam
+              console.log('🤚 Hand detection attempt:', {
+                hasHandLandmarker: !!handLandmarkerRef.current,
+                hasResult: !!handResult,
+                hasLandmarks: !!(handResult?.landmarks),
+                landmarkCount: handResult?.landmarks?.length || 0
+              });
+            }
+            
             if (handResult && handResult.landmarks && handResult.landmarks.length > 0) {
               const handLandmarks = handResult.landmarks[0];
               
@@ -904,9 +914,21 @@ export function useLiveKitEyeContact(
               }
             } else {
               lastHandDetection.current = null;
+              // Debug: Log when no hands detected
+              if (Math.random() < 0.005) { // Very occasional logging
+                console.log('🤚 No hands detected in frame');
+              }
             }
           } catch (handError) {
-            // Silently fail hand detection to not interrupt face detection
+            console.error('🤚❌ Hand detection error:', handError);
+          }
+        } else {
+          // Debug: Log when hand landmarker not available
+          if (Math.random() < 0.005) { // Very occasional logging
+            console.log('🤚❌ Hand landmarker not available:', {
+              hasHandLandmarker: !!handLandmarkerRef.current,
+              hasVideo: !!targetVideo
+            });
           }
         }
 
@@ -1005,7 +1027,7 @@ export function useLiveKitEyeContact(
 
         // Update local state
         setEyeContactState((prev) => ({
-          ...prev,
+            ...prev,
           localWinking: isWinking,
           localWinkEye: winkEye,
           localTongueOut: isTongueOut,
