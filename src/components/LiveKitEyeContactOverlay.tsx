@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useRef, useEffect, useState } from "react";
+import React, { useRef, useEffect, useState, useCallback } from "react";
 import { useLiveKitEyeContact } from "@/hooks/useLiveKitEyeContact";
 
 interface LiveKitEyeContactOverlayProps {
@@ -141,6 +141,20 @@ export default function LiveKitEyeContactOverlay({
     }
   }, [manualRemoteWink]);
 
+  // Listen for come closer button click from parent component
+  const handleComeCloserRef = useRef(sendComeCloserRequest);
+  useEffect(() => {
+    handleComeCloserRef.current = sendComeCloserRequest;
+  }, [sendComeCloserRequest]);
+
+  useEffect(() => {
+    const handleComeCloser = () => {
+      handleComeCloserRef.current();
+    };
+    
+    window.addEventListener('sendComeCloser', handleComeCloser);
+    return () => window.removeEventListener('sendComeCloser', handleComeCloser);
+  }, []);
 
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
@@ -178,7 +192,7 @@ export default function LiveKitEyeContactOverlay({
 
       {/* Come Closer Request Notification */}
       {comeCloserRequest && (
-        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 animate-bounce">
+        <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 animate-bounce pointer-events-none">
           <div className="bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl p-8 shadow-2xl border-4 border-white">
             <div className="text-center">
               <div className="text-7xl mb-4">👋</div>
@@ -188,16 +202,6 @@ export default function LiveKitEyeContactOverlay({
           </div>
         </div>
       )}
-
-      {/* Come Closer Button */}
-      <button
-        onClick={sendComeCloserRequest}
-        className="pointer-events-auto absolute bottom-4 left-4 bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-3 px-6 rounded-full shadow-lg transition-all hover:scale-110 flex items-center gap-2"
-        title="Ask them to come closer to camera"
-      >
-        <span className="text-2xl">👋</span>
-        <span>Come Closer</span>
-      </button>
 
       {/* CSS for wink animations */}
       <style jsx>{`

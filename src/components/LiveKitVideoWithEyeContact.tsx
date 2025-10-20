@@ -230,6 +230,24 @@ function RoomContent() {
           </div>
         </div>
       </div>
+
+      {/* Come Closer Button - Separate from overlay */}
+      {eyeContactEnabled && (
+        <div className="absolute bottom-24 left-4 z-40">
+          <button
+            onClick={() => {
+              // Send come closer request via overlay's hook
+              const event = new CustomEvent('sendComeCloser');
+              window.dispatchEvent(event);
+            }}
+            className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-3 px-6 rounded-full shadow-2xl transition-all hover:scale-110 flex items-center gap-2 border-2 border-white"
+            title="Ask them to come closer to camera"
+          >
+            <span className="text-2xl">👋</span>
+            <span className="text-sm md:text-base">Come Closer</span>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
