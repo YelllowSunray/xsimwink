@@ -50,6 +50,7 @@ export function useLiveKitEyeContact(
   const lastDetectionTime = useRef<number>(0);
   const eyeContactStartTime = useRef<number | null>(null);
   const eyeContactIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const isCleaningUpRef = useRef<boolean>(false);
   
   // Wink temporal detection
   const winkStateRef = useRef<{
@@ -174,6 +175,7 @@ export function useLiveKitEyeContact(
     }
     
     let isInitializing = false;
+    isCleaningUpRef.current = false;
 
     const initializeFaceLandmarker = async (videoEl?: HTMLVideoElement) => {
       const targetVideo = videoEl || localVideoElement;
@@ -476,6 +478,11 @@ export function useLiveKitEyeContact(
     };
 
     const detect = (videoEl?: HTMLVideoElement) => {
+      // Stop detection if cleaning up
+      if (isCleaningUpRef.current) {
+        return;
+      }
+
       // Get the target video (passed in or from element ref or from DOM)
       let targetVideo = videoEl || localVideoElement;
       
@@ -492,7 +499,9 @@ export function useLiveKitEyeContact(
         if (Math.random() < 0.01) {
           console.log('⚠️ Face landmarker not initialized');
         }
-        animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        if (!isCleaningUpRef.current) {
+          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        }
         return;
       }
       
@@ -500,7 +509,9 @@ export function useLiveKitEyeContact(
         if (Math.random() < 0.01) {
           console.log('⚠️ No video element available');
         }
-        animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        if (!isCleaningUpRef.current) {
+          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        }
         return;
       }
       
@@ -508,7 +519,9 @@ export function useLiveKitEyeContact(
         if (Math.random() < 0.01) {
           console.log('⚠️ Video not ready, readyState:', targetVideo.readyState);
         }
-        animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        if (!isCleaningUpRef.current) {
+          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        }
         return;
       }
 
@@ -516,7 +529,9 @@ export function useLiveKitEyeContact(
 
       // Throttle to ~10 FPS
       if (now - lastDetectionTime.current < 100) {
-        animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        if (!isCleaningUpRef.current) {
+          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+        }
         return;
       }
 
@@ -525,8 +540,17 @@ export function useLiveKitEyeContact(
       try {
         // Additional safety checks
         if (!targetVideo.videoWidth || !targetVideo.videoHeight) {
-          console.log('⚠️ Video has no dimensions yet:', targetVideo.videoWidth, 'x', targetVideo.videoHeight);
-          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+          if (Math.random() < 0.01) {
+            console.log('⚠️ Video has no dimensions yet:', targetVideo.videoWidth, 'x', targetVideo.videoHeight);
+          }
+          if (!isCleaningUpRef.current) {
+            animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+          }
+          return;
+        }
+
+        // Check if landmarker is still valid (not closed)
+        if (!faceLandmarkerRef.current) {
           return;
         }
 
@@ -536,8 +560,12 @@ export function useLiveKitEyeContact(
         );
         
         if (!result) {
-          console.log('⚠️ No result from face detection');
-          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+          if (Math.random() < 0.01) {
+            console.log('⚠️ No result from face detection');
+          }
+          if (!isCleaningUpRef.current) {
+            animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+          }
           return;
         }
         
@@ -558,16 +586,21 @@ export function useLiveKitEyeContact(
         // Send to remote participant
         sendGazeData(gazeData);
       } catch (error) {
-        console.error("❌ Detection error:", error);
-        console.error("Error details:", {
-          hasLandmarker: !!faceLandmarkerRef.current,
-          hasVideo: !!targetVideo,
-          videoReady: targetVideo?.readyState,
-          videoDimensions: `${targetVideo?.videoWidth}x${targetVideo?.videoHeight}`
-        });
+        // Only log errors if we're not cleaning up
+        if (!isCleaningUpRef.current) {
+          console.error("❌ Detection error:", error);
+          console.error("Error details:", {
+            hasLandmarker: !!faceLandmarkerRef.current,
+            hasVideo: !!targetVideo,
+            videoReady: targetVideo?.readyState,
+            videoDimensions: `${targetVideo?.videoWidth}x${targetVideo?.videoHeight}`
+          });
+        }
       }
 
-      animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+      if (!isCleaningUpRef.current) {
+        animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+      }
     };
 
     const startDetection = (videoEl?: HTMLVideoElement) => {
@@ -585,13 +618,26 @@ export function useLiveKitEyeContact(
     }
 
     return () => {
+      // Set cleanup flag first to stop detection loop
+      isCleaningUpRef.current = true;
+      
+      // Cancel any pending animation frames
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
-      if (faceLandmarkerRef.current) {
-        faceLandmarkerRef.current.close();
-        faceLandmarkerRef.current = null;
-      }
+      
+      // Small delay to ensure any in-flight detectForVideo calls complete
+      setTimeout(() => {
+        if (faceLandmarkerRef.current) {
+          try {
+            faceLandmarkerRef.current.close();
+          } catch (error) {
+            // Silently handle close errors
+          }
+          faceLandmarkerRef.current = null;
+        }
+      }, 50);
     };
   }, [localVideoElement, enabled]);
 

@@ -21,6 +21,7 @@ export function useEyeContactDetection(
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(0);
+  const isCleaningUpRef = useRef<boolean>(false);
   
   // Wink temporal detection
   const winkStateRef = useRef<{
@@ -37,6 +38,7 @@ export function useEyeContactDetection(
     if (!enabled || !videoElement) return;
 
     let isInitializing = false;
+    isCleaningUpRef.current = false;
 
     const initializeFaceLandmarker = async () => {
       if (isInitializing || faceLandmarkerRef.current) return;
@@ -248,8 +250,15 @@ export function useEyeContactDetection(
     };
 
     const detect = () => {
+      // Stop detection if cleaning up
+      if (isCleaningUpRef.current) {
+        return;
+      }
+
       if (!faceLandmarkerRef.current || !videoElement || videoElement.readyState < 2) {
-        animationFrameRef.current = requestAnimationFrame(detect);
+        if (!isCleaningUpRef.current) {
+          animationFrameRef.current = requestAnimationFrame(detect);
+        }
         return;
       }
 
@@ -257,14 +266,37 @@ export function useEyeContactDetection(
       
       // Throttle detection to ~10 FPS for performance
       if (now - lastDetectionTime.current < 100) {
-        animationFrameRef.current = requestAnimationFrame(detect);
+        if (!isCleaningUpRef.current) {
+          animationFrameRef.current = requestAnimationFrame(detect);
+        }
         return;
       }
 
       lastDetectionTime.current = now;
 
       try {
+        // Additional safety checks before calling detectForVideo
+        if (!videoElement.videoWidth || !videoElement.videoHeight) {
+          if (!isCleaningUpRef.current) {
+            animationFrameRef.current = requestAnimationFrame(detect);
+          }
+          return;
+        }
+
+        // Check if landmarker is still valid (not closed)
+        if (!faceLandmarkerRef.current) {
+          return;
+        }
+
         const result = faceLandmarkerRef.current.detectForVideo(videoElement, now);
+        
+        if (!result) {
+          if (!isCleaningUpRef.current) {
+            animationFrameRef.current = requestAnimationFrame(detect);
+          }
+          return;
+        }
+
         const { 
           isLooking, 
           confidence, 
@@ -277,10 +309,15 @@ export function useEyeContactDetection(
         setIsWinking(winking);
         setWinkEye(eye);
       } catch (error) {
-        console.error("Detection error:", error);
+        // Only log errors if we're not cleaning up
+        if (!isCleaningUpRef.current) {
+          console.error("Detection error:", error);
+        }
       }
 
-      animationFrameRef.current = requestAnimationFrame(detect);
+      if (!isCleaningUpRef.current) {
+        animationFrameRef.current = requestAnimationFrame(detect);
+      }
     };
 
     const startDetection = () => {
@@ -293,13 +330,26 @@ export function useEyeContactDetection(
     initializeFaceLandmarker();
 
     return () => {
+      // Set cleanup flag first to stop detection loop
+      isCleaningUpRef.current = true;
+      
+      // Cancel any pending animation frames
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current);
+        animationFrameRef.current = null;
       }
-      if (faceLandmarkerRef.current) {
-        faceLandmarkerRef.current.close();
-        faceLandmarkerRef.current = null;
-      }
+      
+      // Small delay to ensure any in-flight detectForVideo calls complete
+      setTimeout(() => {
+        if (faceLandmarkerRef.current) {
+          try {
+            faceLandmarkerRef.current.close();
+          } catch (error) {
+            // Silently handle close errors
+          }
+          faceLandmarkerRef.current = null;
+        }
+      }, 50);
     };
   }, [videoElement, enabled]);
 
