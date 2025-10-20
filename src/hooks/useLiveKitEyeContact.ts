@@ -127,6 +127,9 @@ export function useLiveKitEyeContact(
     lastSentWink: 0,
   });
 
+  const tongueStateRef = useRef({ isTongueOut: false, startTime: 0 });
+  const kissStateRef = useRef<number>(0); // Store last kiss timestamp
+
   // Receive data from remote participant
   useDataChannel("eye-contact", (message) => {
     try {
@@ -567,7 +570,7 @@ export function useLiveKitEyeContact(
           )?.score || 0;
 
         // Wink detection with harder threshold
-        const WINK_THRESHOLD = 0.45; // Harder threshold - must really close eye
+        const WINK_THRESHOLD = 0.35; // Reduced from 0.45 to make it easier
         
         const now = Date.now();
         
@@ -642,12 +645,19 @@ export function useLiveKitEyeContact(
         const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
         
         // Debug logging - ALWAYS show pucker score (every frame)
-        console.log('💋 Pucker score:', mouthPuckerScore.toFixed(3), '(threshold: 0.92 - EXTREMELY HARD)');
+        console.log('💋 Pucker score:', mouthPuckerScore.toFixed(3), '(threshold: 0.95 - ULTRA HARD)');
         
-        // EXTREMELY hard threshold - must be > 0.92 to trigger (only very deliberate kiss/pucker)
-        if (mouthPuckerScore > 0.92) {
-          isKissing = true;
-          console.log('💋✅ KISS TRIGGERED! Score:', mouthPuckerScore.toFixed(2));
+        // ULTRA hard threshold - must be > 0.95 to trigger (only extremely deliberate kiss/pucker)
+        if (mouthPuckerScore > 0.95) {
+          // Add cooldown to prevent spam
+          const now = Date.now();
+          if (!kissStateRef.current || now - kissStateRef.current > 3000) { // 3 second cooldown
+            isKissing = true;
+            kissStateRef.current = now;
+            console.log('💋✅ KISS TRIGGERED! Score:', mouthPuckerScore.toFixed(2));
+          } else {
+            console.log('💋⏳ Kiss on cooldown, ignoring...');
+          }
         }
         
         eyeOpennessConfidence = 1 - (leftEyeBlink + rightEyeBlink) / 2;

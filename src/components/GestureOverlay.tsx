@@ -276,7 +276,7 @@ export default function GestureOverlay({
           const leftBlink = blendshapes.categories?.find((c: any) => c.categoryName === "eyeBlinkLeft")?.score || 0;
           const rightBlink = blendshapes.categories?.find((c: any) => c.categoryName === "eyeBlinkRight")?.score || 0;
           
-          const WINK_THRESHOLD = 0.45;
+          const WINK_THRESHOLD = 0.35; // Reduced from 0.45 to make it easier
           const currentTime = Date.now();
           
           // Check for left wink
@@ -337,18 +337,24 @@ export default function GestureOverlay({
           
           // Kiss detection
           const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
-          const KISS_THRESHOLD = 0.92; // Increased from 0.85 to make it extremely hard
+          const KISS_THRESHOLD = 0.95; // Increased from 0.92 to make it ultra hard
           
           if (mouthPuckerScore > KISS_THRESHOLD) {
             if (!kissStateRef.current.isKissing) {
               kissStateRef.current = { isKissing: true, startTime: currentTime };
             }
-          } else if (kissStateRef.current.isKissing) {
-            const kissDuration = currentTime - kissStateRef.current.startTime;
-            if (kissDuration >= 200 && kissDuration <= 1000) {
-              addGestureAnimation('kiss', '💋');
+          } else {
+            if (kissStateRef.current.isKissing) {
+              const kissDuration = currentTime - kissStateRef.current.startTime;
+              const timeSinceLastKiss = currentTime - (lastGesturesRef.current.kiss || 0);
+              
+              // Require minimum duration and cooldown to prevent spam
+              if (kissDuration >= 200 && timeSinceLastKiss > 3000) { // 200ms duration, 3s cooldown
+                addGestureAnimation('kiss', '💋');
+                lastGesturesRef.current.kiss = currentTime;
+              }
+              kissStateRef.current = { isKissing: false, startTime: 0 };
             }
-            kissStateRef.current = { isKissing: false, startTime: 0 };
           }
         }
 
