@@ -22,6 +22,8 @@ interface EyeContactState {
   remoteWinking: boolean;
   localWinkEye: 'left' | 'right' | null;
   remoteWinkEye: 'left' | 'right' | null;
+  comeCloserRequest: boolean;
+  sendComeCloserRequest: () => void;
 }
 
 export function useLiveKitEyeContact(
@@ -30,11 +32,12 @@ export function useLiveKitEyeContact(
   enabled: boolean = true
 ) {
   const room = useRoomContext();
-  const [eyeContactState, setEyeContactState] = useState<EyeContactState>({
+  const [eyeContactState, setEyeContactState] = useState<Omit<EyeContactState, 'sendComeCloserRequest'>>({
     localWinking: false,
     remoteWinking: false,
     localWinkEye: null,
     remoteWinkEye: null,
+    comeCloserRequest: false,
   });
 
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
@@ -55,20 +58,40 @@ export function useLiveKitEyeContact(
     lastSentWink: 0,
   });
 
-  // Receive wink data from remote participant
+  // Receive data from remote participant
   useDataChannel("eye-contact", (message) => {
     try {
-      const remoteData: { isWinking: boolean; winkEye: 'left' | 'right' | null } = JSON.parse(
+      const remoteData = JSON.parse(
         new TextDecoder().decode(message.payload)
       );
       
-      setEyeContactState((prev) => ({
-        ...prev,
-        remoteWinking: remoteData.isWinking,
-        remoteWinkEye: remoteData.winkEye,
-      }));
+      // Handle wink data
+      if (remoteData.isWinking !== undefined) {
+        setEyeContactState((prev) => ({
+          ...prev,
+          remoteWinking: remoteData.isWinking,
+          remoteWinkEye: remoteData.winkEye,
+        }));
+      }
+      
+      // Handle come closer request
+      if (remoteData.comeCloser) {
+        console.log('📢 Received come closer request');
+        setEyeContactState((prev) => ({
+          ...prev,
+          comeCloserRequest: true,
+        }));
+        
+        // Auto-dismiss after 5 seconds
+        setTimeout(() => {
+          setEyeContactState((prev) => ({
+            ...prev,
+            comeCloserRequest: false,
+          }));
+        }, 5000);
+      }
     } catch (error) {
-      console.error("Error parsing wink data:", error);
+      console.error("Error parsing data:", error);
     }
   });
 
@@ -86,6 +109,25 @@ export function useLiveKitEyeContact(
       });
     } catch (error) {
       console.error("Error sending wink data:", error);
+    }
+  };
+
+  // Send "come closer" request to remote participant
+  const sendComeCloserRequest = () => {
+    if (!room?.localParticipant) return;
+
+    try {
+      const encoder = new TextEncoder();
+      const data = encoder.encode(JSON.stringify({ comeCloser: true }));
+
+      room.localParticipant.publishData(data, {
+        reliable: true,
+        topic: "eye-contact",
+      });
+      
+      console.log('📢 Sent come closer request');
+    } catch (error) {
+      console.error("Error sending come closer request:", error);
     }
   };
 
@@ -566,6 +608,9 @@ export function useLiveKitEyeContact(
     };
   }, [localVideoElement, enabled]);
 
-  return eyeContactState;
+  return {
+    ...eyeContactState,
+    sendComeCloserRequest,
+  };
 }
 
