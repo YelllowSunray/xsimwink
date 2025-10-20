@@ -12,10 +12,12 @@ interface LiveKitEyeContactOverlayProps {
   manualRemoteWink?: boolean;
 }
 
-interface WinkAnimation {
+interface GestureAnimation {
   id: string;
-  side: 'left' | 'right';
+  type: 'wink' | 'tongue' | 'kiss' | 'peace' | 'thumbsUp' | 'rockOn' | 'okSign';
+  side?: 'left' | 'right';
   timestamp: number;
+  emoji: string;
 }
 
 export default function LiveKitEyeContactOverlay({
@@ -41,65 +43,100 @@ export default function LiveKitEyeContactOverlay({
     remoteWinking,
     localWinkEye,
     remoteWinkEye,
+    localTongueOut,
+    remoteTongueOut,
+    localKissing,
+    remoteKissing,
   } = eyeContactState;
 
-  const [localWinkAnimations, setLocalWinkAnimations] = useState<WinkAnimation[]>([]);
-  const [remoteWinkAnimations, setRemoteWinkAnimations] = useState<WinkAnimation[]>([]);
-  const lastLocalWinkRef = useRef<number>(0);
-  const lastRemoteWinkRef = useRef<number>(0);
+  const [localGestureAnimations, setLocalGestureAnimations] = useState<GestureAnimation[]>([]);
+  const [remoteGestureAnimations, setRemoteGestureAnimations] = useState<GestureAnimation[]>([]);
+  const lastLocalGesturesRef = useRef<{[key: string]: number}>({});
+  const lastRemoteGesturesRef = useRef<{[key: string]: number}>({});
 
-  // Detect wink events and trigger animations
+  // Detect all gestures and trigger animations
   useEffect(() => {
     const now = Date.now();
+    const COOLDOWN = 500;
     
-    // Local wink detection
-    if (localWinking && localWinkEye && now - lastLocalWinkRef.current > 500) {
-      console.log('😉 Local wink detected!', localWinkEye, 'eye');
-      lastLocalWinkRef.current = now;
-      const newWink: WinkAnimation = {
-        id: `local-${now}`,
-        side: localWinkEye,
-        timestamp: now,
-      };
-      setLocalWinkAnimations(prev => [...prev, newWink]);
+    // Helper function to add gesture animation
+    const addGestureAnimation = (
+      isLocal: boolean,
+      type: GestureAnimation['type'],
+      emoji: string,
+      side?: 'left' | 'right'
+    ) => {
+      const refKey = `${isLocal ? 'local' : 'remote'}-${type}`;
+      const lastTimeRef = isLocal ? lastLocalGesturesRef : lastRemoteGesturesRef;
       
-      // Remove animation after 2 seconds
+      if (now - (lastTimeRef.current[refKey] || 0) < COOLDOWN) return;
+      
+      lastTimeRef.current[refKey] = now;
+      console.log(`${emoji} ${isLocal ? 'Local' : 'Remote'} ${type} detected!`);
+      
+      const newGesture: GestureAnimation = {
+        id: `${refKey}-${now}`,
+        type,
+        side,
+        timestamp: now,
+        emoji,
+      };
+      
+      if (isLocal) {
+        setLocalGestureAnimations(prev => [...prev, newGesture]);
+      } else {
+        setRemoteGestureAnimations(prev => [...prev, newGesture]);
+      }
+      
+      // Remove animation after 2-3 seconds (depending on gesture)
+      const duration = type === 'kiss' ? 3000 : 2000;
       setTimeout(() => {
-        setLocalWinkAnimations(prev => prev.filter(w => w.id !== newWink.id));
-      }, 2000);
+        if (isLocal) {
+          setLocalGestureAnimations(prev => prev.filter(g => g.id !== newGesture.id));
+        } else {
+          setRemoteGestureAnimations(prev => prev.filter(g => g.id !== newGesture.id));
+        }
+      }, duration);
+    };
+    
+    // Local gestures
+    if (localWinking && localWinkEye) {
+      addGestureAnimation(true, 'wink', '😉', localWinkEye);
+    }
+    if (localTongueOut) {
+      addGestureAnimation(true, 'tongue', '👅');
+    }
+    if (localKissing) {
+      addGestureAnimation(true, 'kiss', '💋');
     }
     
-    // Remote wink detection
-    if (remoteWinking && remoteWinkEye && now - lastRemoteWinkRef.current > 500) {
-      console.log('😉 Remote wink received!', remoteWinkEye, 'eye');
-      lastRemoteWinkRef.current = now;
-      const newWink: WinkAnimation = {
-        id: `remote-${now}`,
-        side: remoteWinkEye,
-        timestamp: now,
-      };
-      setRemoteWinkAnimations(prev => [...prev, newWink]);
-      
-      // Remove animation after 2 seconds
-      setTimeout(() => {
-        setRemoteWinkAnimations(prev => prev.filter(w => w.id !== newWink.id));
-      }, 2000);
+    // Remote gestures
+    if (remoteWinking && remoteWinkEye) {
+      addGestureAnimation(false, 'wink', '😉', remoteWinkEye);
     }
-  }, [localWinking, localWinkEye, remoteWinking, remoteWinkEye]);
+    if (remoteTongueOut) {
+      addGestureAnimation(false, 'tongue', '👅');
+    }
+    if (remoteKissing) {
+      addGestureAnimation(false, 'kiss', '💋');
+    }
+  }, [localWinking, localWinkEye, localTongueOut, localKissing, remoteWinking, remoteWinkEye, remoteTongueOut, remoteKissing]);
 
-  // Manual wink testing
+  // Manual testing (kept for backward compatibility)
   useEffect(() => {
     if (manualLocalWink) {
       console.log('🧪 Manual local wink triggered!');
       const now = Date.now();
-      const newWink: WinkAnimation = {
+      const newGesture: GestureAnimation = {
         id: `manual-local-${now}`,
+        type: 'wink',
         side: 'left',
         timestamp: now,
+        emoji: '😉',
       };
-      setLocalWinkAnimations(prev => [...prev, newWink]);
+      setLocalGestureAnimations(prev => [...prev, newGesture]);
       setTimeout(() => {
-        setLocalWinkAnimations(prev => prev.filter(w => w.id !== newWink.id));
+        setLocalGestureAnimations(prev => prev.filter(g => g.id !== newGesture.id));
       }, 2000);
     }
   }, [manualLocalWink]);
@@ -108,14 +145,16 @@ export default function LiveKitEyeContactOverlay({
     if (manualRemoteWink) {
       console.log('🧪 Manual remote wink triggered!');
       const now = Date.now();
-      const newWink: WinkAnimation = {
+      const newGesture: GestureAnimation = {
         id: `manual-remote-${now}`,
+        type: 'wink',
         side: 'right',
         timestamp: now,
+        emoji: '😉',
       };
-      setRemoteWinkAnimations(prev => [...prev, newWink]);
+      setRemoteGestureAnimations(prev => [...prev, newGesture]);
       setTimeout(() => {
-        setRemoteWinkAnimations(prev => prev.filter(w => w.id !== newWink.id));
+        setRemoteGestureAnimations(prev => prev.filter(g => g.id !== newGesture.id));
       }, 2000);
     }
   }, [manualRemoteWink]);
@@ -133,36 +172,52 @@ export default function LiveKitEyeContactOverlay({
     return 1.3;
   };
 
+  // Get animation style based on gesture type
+  const getAnimationName = (type: GestureAnimation['type']): string => {
+    switch (type) {
+      case 'kiss':
+        return 'kissFloat';
+      case 'tongue':
+        return 'tongueFloat';
+      default:
+        return 'gestureFloat';
+    }
+  };
+
+  const getAnimationDuration = (type: GestureAnimation['type']): string => {
+    return type === 'kiss' ? '3s' : '2s';
+  };
+
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
-      {/* Local Wink Animations (bottom-right where local video is) */}
-      {localWinkAnimations.map((wink) => (
+      {/* Local Gesture Animations (bottom-right where local video is) */}
+      {localGestureAnimations.map((gesture) => (
         <div
-          key={wink.id}
-          className="absolute bottom-28 right-20 animate-wink-float z-30"
+          key={gesture.id}
+          className="absolute bottom-28 right-20 z-30"
           style={{
-            animation: 'winkFloat 2s ease-out forwards',
+            animation: `${getAnimationName(gesture.type)} ${getAnimationDuration(gesture.type)} ease-out forwards`,
           }}
         >
-          <div className="text-6xl animate-pulse">
-            😉
+          <div className="text-6xl animate-pulse drop-shadow-lg">
+            {gesture.emoji}
           </div>
         </div>
       ))}
 
-      {/* Remote Wink Animations (center of screen where remote video is) */}
-      {remoteWinkAnimations.map((wink, index) => (
+      {/* Remote Gesture Animations (center of screen where remote video is) */}
+      {remoteGestureAnimations.map((gesture, index) => (
         <div
-          key={wink.id}
+          key={gesture.id}
           className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30"
           style={{
-            animation: 'winkFloat 2s ease-out forwards',
+            animation: `${getAnimationName(gesture.type)} ${getAnimationDuration(gesture.type)} ease-out forwards`,
             marginLeft: `${(index % 3 - 1) * 100}px`,
             marginTop: `${(Math.floor(index / 3) - 1) * 100}px`,
           }}
         >
-          <div className="text-8xl animate-pulse drop-shadow-2xl">
-            😉
+          <div className={`${gesture.type === 'kiss' ? 'text-9xl' : 'text-8xl'} animate-pulse drop-shadow-2xl`}>
+            {gesture.emoji}
           </div>
         </div>
       ))}
@@ -338,6 +393,12 @@ export default function LiveKitEyeContactOverlay({
               <p className={`text-gray-300 font-bold ${localWinking ? 'text-yellow-400' : ''}`}>
                 Winking: {localWinking ? `😉 ${localWinkEye}` : "❌"}
               </p>
+              <p className={`text-gray-300 font-bold ${localTongueOut ? 'text-pink-400' : ''}`}>
+                Tongue: {localTongueOut ? "👅 Yes" : "❌"}
+              </p>
+              <p className={`text-gray-300 font-bold ${localKissing ? 'text-red-400' : ''}`}>
+                Kiss: {localKissing ? "💋 Yes" : "❌"}
+              </p>
             </div>
           )}
 
@@ -356,6 +417,12 @@ export default function LiveKitEyeContactOverlay({
               </p>
               <p className={`text-gray-300 font-bold ${remoteWinking ? 'text-yellow-400' : ''}`}>
                 Winking: {remoteWinking ? `😉 ${remoteWinkEye}` : "❌"}
+              </p>
+              <p className={`text-gray-300 font-bold ${remoteTongueOut ? 'text-pink-400' : ''}`}>
+                Tongue: {remoteTongueOut ? "👅 Yes" : "❌"}
+              </p>
+              <p className={`text-gray-300 font-bold ${remoteKissing ? 'text-red-400' : ''}`}>
+                Kiss: {remoteKissing ? "💋 Yes" : "❌"}
               </p>
               <p className="text-gray-300 text-xs">
                 Age: {Date.now() - remoteGaze.timestamp}ms
@@ -392,7 +459,7 @@ export default function LiveKitEyeContactOverlay({
           }
         }
 
-        @keyframes winkFloat {
+        @keyframes gestureFloat {
           0% {
             opacity: 1;
             transform: scale(1) translateY(0) rotate(0deg);
@@ -406,8 +473,41 @@ export default function LiveKitEyeContactOverlay({
           }
         }
 
-        .animate-wink-float {
-          animation: winkFloat 2s ease-out forwards;
+        @keyframes kissFloat {
+          0% {
+            opacity: 1;
+            transform: scale(1) translateY(0) rotate(0deg);
+          }
+          30% {
+            transform: scale(1.5) translateY(-20px) rotate(5deg);
+          }
+          60% {
+            transform: scale(1.8) translateY(-50px) rotate(-5deg);
+          }
+          100% {
+            opacity: 0;
+            transform: scale(1.2) translateY(-120px) rotate(15deg);
+          }
+        }
+
+        @keyframes tongueFloat {
+          0% {
+            opacity: 1;
+            transform: scale(1) translateY(0) rotate(0deg);
+          }
+          25% {
+            transform: scale(1.2) translateY(-15px) rotate(-5deg);
+          }
+          50% {
+            transform: scale(1.4) translateY(-35px) rotate(5deg);
+          }
+          75% {
+            transform: scale(1.2) translateY(-60px) rotate(-5deg);
+          }
+          100% {
+            opacity: 0;
+            transform: scale(0.9) translateY(-90px) rotate(10deg);
+          }
         }
       `}</style>
     </div>

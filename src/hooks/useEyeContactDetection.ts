@@ -69,7 +69,12 @@ export function useEyeContactDetection(
       }
     };
 
-    const calculateEyeContactFromLandmarks = (result: any): { isLooking: boolean; confidence: number; isWinking: boolean; winkEye: 'left' | 'right' | null } => {
+    const calculateEyeContactFromLandmarks = (result: any): { 
+      isLooking: boolean; 
+      confidence: number; 
+      isWinking: boolean; 
+      winkEye: 'left' | 'right' | null;
+    } => {
       if (!result || !result.faceLandmarks || result.faceLandmarks.length === 0) {
         return { isLooking: false, confidence: 0, isWinking: false, winkEye: null };
       }
@@ -260,7 +265,12 @@ export function useEyeContactDetection(
 
       try {
         const result = faceLandmarkerRef.current.detectForVideo(videoElement, now);
-        const { isLooking, confidence, isWinking: winking, winkEye: eye } = calculateEyeContactFromLandmarks(result);
+        const { 
+          isLooking, 
+          confidence, 
+          isWinking: winking, 
+          winkEye: eye
+        } = calculateEyeContactFromLandmarks(result);
         
         setIsLookingAtCamera(isLooking);
         setConfidence(confidence);

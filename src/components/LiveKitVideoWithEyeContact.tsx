@@ -60,15 +60,13 @@ function RoomContent() {
     <div className="relative w-full h-screen bg-black">
       {/* Remote Video (Full Screen) */}
       <div className="absolute inset-0">
-        {remoteVideoTrack ? (
+        {remoteVideoTrack && remoteVideoTrack.publication ? (
           <VideoTrack
-            trackRef={remoteVideoTrack}
+            trackRef={remoteVideoTrack as any}
             className="w-full h-full object-contain"
             onVideoPlayingChange={(playing) => {
-              // Attach ref when video is playing
               if (playing && remoteVideoTrack.publication?.track) {
-                const videoElement =
-                  remoteVideoTrack.publication.track.attachedElements[0];
+                const videoElement = remoteVideoTrack.publication.track.attachedElements[0];
                 if (videoElement && videoElement instanceof HTMLVideoElement) {
                   (remoteVideoRef as any).current = videoElement;
                   console.log('✅ Remote video element attached:', videoElement.videoWidth, 'x', videoElement.videoHeight);
@@ -103,15 +101,13 @@ function RoomContent() {
 
       {/* Local Video (Picture-in-Picture) */}
       <div className="absolute bottom-24 right-4 w-48 h-36 rounded-lg overflow-hidden border-2 border-pink-500 shadow-2xl z-20">
-        {localVideoTrack ? (
+        {localVideoTrack && localVideoTrack.publication ? (
           <VideoTrack
-            trackRef={localVideoTrack}
+            trackRef={localVideoTrack as any}
             className="w-full h-full object-cover scale-x-[-1]"
             onVideoPlayingChange={(playing) => {
-              // Attach ref when video is playing
               if (playing && localVideoTrack.publication?.track) {
-                const videoElement =
-                  localVideoTrack.publication.track.attachedElements[0];
+                const videoElement = localVideoTrack.publication.track.attachedElements[0];
                 if (videoElement && videoElement instanceof HTMLVideoElement) {
                   (localVideoRef as any).current = videoElement;
                   console.log('✅ Local video element attached:', videoElement.videoWidth, 'x', videoElement.videoHeight);
