@@ -1072,7 +1072,6 @@ export function useLiveKitEyeContact(
           isWinking, 
           winkEye,
           isTongueOut,
-          isKissing,
           isVTongue,
           isPeaceSign,
           isThumbsUp,
