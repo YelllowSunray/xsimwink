@@ -10,6 +10,7 @@ interface LiveKitEyeContactOverlayProps {
   showDebugInfo?: boolean;
   manualLocalWink?: boolean;
   manualRemoteWink?: boolean;
+  gesturesEnabled?: boolean;
 }
 
 interface GestureAnimation {
@@ -27,6 +28,7 @@ export default function LiveKitEyeContactOverlay({
   showDebugInfo = false,
   manualLocalWink = false,
   manualRemoteWink = false,
+  gesturesEnabled = true,
 }: LiveKitEyeContactOverlayProps) {
   const eyeContactState = useLiveKitEyeContact(
     localVideoRef.current,
@@ -159,7 +161,7 @@ export default function LiveKitEyeContactOverlay({
   return (
     <div className="absolute inset-0 pointer-events-none z-10">
       {/* Local Wink Animations (bottom-right where local video is) */}
-      {localGestureAnimations.map((gesture) => (
+      {gesturesEnabled && localGestureAnimations.map((gesture) => (
         <div
           key={gesture.id}
           className="absolute bottom-28 right-20 z-30"
@@ -174,7 +176,7 @@ export default function LiveKitEyeContactOverlay({
       ))}
 
       {/* Remote Wink Animations (center of screen where remote video is) */}
-      {remoteGestureAnimations.map((gesture, index) => (
+      {gesturesEnabled && remoteGestureAnimations.map((gesture, index) => (
         <div
           key={gesture.id}
           className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30"

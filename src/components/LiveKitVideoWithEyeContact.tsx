@@ -28,6 +28,7 @@ function RoomContent() {
   const localTrackRef = useRef<HTMLVideoElement>(null);
   const remoteTrackRef = useRef<HTMLVideoElement>(null);
   const [eyeContactEnabled, setEyeContactEnabled] = useState(true);
+  const [gesturesEnabled, setGesturesEnabled] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
   const [manualLocalWink, setManualLocalWink] = useState(false);
   const [manualRemoteWink, setManualRemoteWink] = useState(false);
@@ -142,6 +143,7 @@ function RoomContent() {
           showDebugInfo={showDebug}
           manualLocalWink={manualLocalWink}
           manualRemoteWink={manualRemoteWink}
+          gesturesEnabled={gesturesEnabled}
         />
       )}
 
@@ -159,8 +161,8 @@ function RoomContent() {
               }`}
               title={
                 eyeContactEnabled
-                  ? "Disable eye contact detection"
-                  : "Enable eye contact detection"
+                  ? "Disable wink detection"
+                  : "Enable wink detection"
               }
             >
               <svg
@@ -170,6 +172,23 @@ function RoomContent() {
               >
                 <path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17c-2.76 0-5-2.24-5-5s2.24-5 5-5 5 2.24 5 5-2.24 5-5 5zm0-8c-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3-1.34-3-3-3z" />
               </svg>
+            </button>
+
+            {/* Toggle Gesture Animations */}
+            <button
+              onClick={() => setGesturesEnabled(!gesturesEnabled)}
+              className={`p-3 rounded-full transition ${
+                gesturesEnabled
+                  ? "bg-yellow-600 hover:bg-yellow-700"
+                  : "bg-gray-600 hover:bg-gray-700"
+              }`}
+              title={
+                gesturesEnabled
+                  ? "Hide gesture animations"
+                  : "Show gesture animations"
+              }
+            >
+              <span className="text-2xl">{gesturesEnabled ? "😉" : "🚫"}</span>
             </button>
 
             {/* Toggle Debug Info */}
