@@ -194,6 +194,12 @@ export function useLiveKitEyeContact(
     isThumbsUp: boolean;
     isOKSign: boolean;
     isRockOn: boolean;
+    // Add attention tracking data
+    isLooking: boolean;
+    gazeX: number;
+    gazeY: number;
+    confidence: number;
+    timestamp: number;
   }) => {
     if (!room?.localParticipant) return;
 
@@ -1015,7 +1021,7 @@ export function useLiveKitEyeContact(
           attentionMetrics,
         }));
 
-        // Send to remote participant
+        // Send to remote participant (include attention data)
         sendWinkData({ 
           isWinking, 
           winkEye,
@@ -1026,6 +1032,12 @@ export function useLiveKitEyeContact(
           isThumbsUp,
           isOKSign,
           isRockOn,
+          // Add attention tracking data
+          isLooking: localGazeData.isLooking,
+          gazeX: localGazeData.gazeX,
+          gazeY: localGazeData.gazeY,
+          confidence: localGazeData.confidence,
+          timestamp: localGazeData.timestamp,
         });
         
         // Confirm data sent
