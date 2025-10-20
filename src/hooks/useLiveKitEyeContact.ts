@@ -184,7 +184,17 @@ export function useLiveKitEyeContact(
   });
 
   // Send local wink data to remote participant
-  const sendWinkData = (winkData: { isWinking: boolean; winkEye: 'left' | 'right' | null; isTongueOut: boolean; isKissing: boolean; isVTongue: boolean }) => {
+  const sendWinkData = (winkData: { 
+    isWinking: boolean; 
+    winkEye: 'left' | 'right' | null; 
+    isTongueOut: boolean; 
+    isKissing: boolean; 
+    isVTongue: boolean;
+    isPeaceSign: boolean;
+    isThumbsUp: boolean;
+    isOKSign: boolean;
+    isRockOn: boolean;
+  }) => {
     if (!room?.localParticipant) return;
 
     try {
