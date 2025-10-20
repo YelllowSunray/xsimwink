@@ -169,7 +169,7 @@ export default function LiveKitEyeContactOverlay({
     if (remoteRockOn) {
       addGestureAnimation(false, 'rockOn', '🤟');
     }
-  }, [localWinking, localWinkEye, localTongueOut, localKissing, localVTongue, localPeaceSign, localThumbsUp, localOKSign, localRockOn, remoteWinking, remoteWinkEye, remoteTongueOut, remoteKissing, remoteVTongue, remotePeaceSign, remoteThumbsUp, remoteOKSign, remoteRockOn]);
+  }, [localWinking, localWinkEye, localTongueOut, localVTongue, localPeaceSign, localThumbsUp, localOKSign, localRockOn, remoteWinking, remoteWinkEye, remoteTongueOut, remoteVTongue, remotePeaceSign, remoteThumbsUp, remoteOKSign, remoteRockOn]);
 
   // Manual testing (kept for backward compatibility)
   useEffect(() => {
