@@ -37,6 +37,8 @@ export function useLiveKitEyeContact(
     remoteWinking: false,
     localWinkEye: null,
     remoteWinkEye: null,
+    localTongueOut: false,
+    remoteTongueOut: false,
     comeCloserRequest: false,
   });
 
@@ -65,12 +67,13 @@ export function useLiveKitEyeContact(
         new TextDecoder().decode(message.payload)
       );
       
-      // Handle wink data
+      // Handle wink and tongue data
       if (remoteData.isWinking !== undefined) {
         setEyeContactState((prev) => ({
           ...prev,
           remoteWinking: remoteData.isWinking,
           remoteWinkEye: remoteData.winkEye,
+          remoteTongueOut: remoteData.isTongueOut || false,
         }));
       }
       
@@ -285,6 +288,7 @@ export function useLiveKitEyeContact(
       let rightEyeBlink = 0;
       let isWinking = false;
       let winkEye: 'left' | 'right' | null = null;
+      let isTongueOut = false;
       let usingEARFallback = false;
       
       // METHOD 1: Try blendshapes first (preferred)
@@ -356,6 +360,20 @@ export function useLiveKitEyeContact(
             startTime: 0,
             lastSentWink: winkStateRef.current.lastSentWink,
           };
+        }
+        
+        // TONGUE OUT DETECTION
+        const tongueOutScore = blendshapes.categories?.find((c: any) => c.categoryName === "tongueOut")?.score || 0;
+        
+        // Simple threshold detection - if tongue score > 0.25, tongue is out
+        if (tongueOutScore > 0.25) {
+          isTongueOut = true;
+          console.log('👅 TONGUE OUT detected! Score:', tongueOutScore.toFixed(2));
+        }
+        
+        // Debug logging (occasional)
+        if (Math.random() < 0.02 && tongueOutScore > 0.05) {
+          console.log('👅 Tongue score:', tongueOutScore.toFixed(2), '(threshold: 0.25)');
         }
         
         eyeOpennessConfidence = 1 - (leftEyeBlink + rightEyeBlink) / 2;
@@ -446,7 +464,19 @@ export function useLiveKitEyeContact(
 
       const isLooking = confidence > 0.6;
 
-      return { isWinking, winkEye };
+      return {
+        gazeX: Math.max(-1, Math.min(1, gazeX * 5)), // Scale to -1 to 1 range
+        gazeY: Math.max(-1, Math.min(1, gazeY * 5)),
+        isLooking,
+        confidence,
+        timestamp: Date.now(),
+        isWinking,
+        winkEye,
+        isTongueOut,
+        // Add raw blink values for debugging
+        leftBlink: leftEyeBlink,
+        rightBlink: rightEyeBlink,
+      } as any;
     };
 
     const detect = (videoEl?: HTMLVideoElement) => {
@@ -541,17 +571,22 @@ export function useLiveKitEyeContact(
           return;
         }
         
-        const { isWinking, winkEye } = calculateWink(result);
+        const gazeData = calculateGazeFromLandmarks(result);
 
         // Update local state
         setEyeContactState((prev) => ({
           ...prev,
-          localWinking: isWinking,
-          localWinkEye: winkEye,
+          localWinking: gazeData.isWinking,
+          localWinkEye: gazeData.winkEye,
+          localTongueOut: gazeData.isTongueOut,
         }));
 
         // Send to remote participant
-        sendWinkData({ isWinking, winkEye });
+        sendWinkData({ 
+          isWinking: gazeData.isWinking, 
+          winkEye: gazeData.winkEye,
+          isTongueOut: gazeData.isTongueOut
+        });
       } catch (error) {
         // Only log errors if we're not cleaning up
         if (!isCleaningUpRef.current) {
