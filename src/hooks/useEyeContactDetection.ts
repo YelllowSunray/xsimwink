@@ -8,6 +8,8 @@ export interface EyeContactStatus {
   confidence: number;
   isWinking: boolean;
   winkEye: 'left' | 'right' | null;
+  isSmiling: boolean;
+  isSurprised: boolean;
 }
 
 export function useEyeContactDetection(
@@ -18,6 +20,8 @@ export function useEyeContactDetection(
   const [confidence, setConfidence] = useState(0);
   const [isWinking, setIsWinking] = useState(false);
   const [winkEye, setWinkEye] = useState<'left' | 'right' | null>(null);
+  const [isSmiling, setIsSmiling] = useState(false);
+  const [isSurprised, setIsSurprised] = useState(false);
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
   const animationFrameRef = useRef<number | null>(null);
   const lastDetectionTime = useRef<number>(0);
@@ -31,6 +35,28 @@ export function useEyeContactDetection(
     isWinking: false,
     winkEye: null,
     startTime: 0,
+  });
+
+  // Smile temporal detection
+  const smileStateRef = useRef<{
+    isSmiling: boolean;
+    startTime: number;
+    lastSent: number;
+  }>({
+    isSmiling: false,
+    startTime: 0,
+    lastSent: 0,
+  });
+
+  // Surprise temporal detection
+  const surpriseStateRef = useRef<{
+    isSurprised: boolean;
+    startTime: number;
+    lastSent: number;
+  }>({
+    isSurprised: false,
+    startTime: 0,
+    lastSent: 0,
   });
 
   useEffect(() => {
@@ -74,9 +100,11 @@ export function useEyeContactDetection(
       confidence: number; 
       isWinking: boolean; 
       winkEye: 'left' | 'right' | null;
+      isSmiling: boolean;
+      isSurprised: boolean;
     } => {
       if (!result || !result.faceLandmarks || result.faceLandmarks.length === 0) {
-        return { isLooking: false, confidence: 0, isWinking: false, winkEye: null };
+        return { isLooking: false, confidence: 0, isWinking: false, winkEye: null, isSmiling: false, isSurprised: false };
       }
 
       const landmarks = result.faceLandmarks[0];
@@ -213,6 +241,72 @@ export function useEyeContactDetection(
 
         // Eyes should be open (low blink score) for eye contact
         eyeOpennessConfidence = 1 - ((leftEyeBlink + rightEyeBlink) / 2);
+        
+        // BIG SMILE DETECTION
+        const mouthSmileScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthSmile")?.score || 0;
+        let isSmiling = false;
+        const SMILE_THRESHOLD = 0.7;
+        const now = Date.now();
+        
+        if (mouthSmileScore > SMILE_THRESHOLD) {
+          if (!smileStateRef.current.isSmiling) {
+            smileStateRef.current = {
+              isSmiling: true,
+              startTime: now,
+              lastSent: smileStateRef.current.lastSent,
+            };
+            console.log('😁 BIG SMILE started! Score:', mouthSmileScore.toFixed(2));
+          }
+        } else if (smileStateRef.current.isSmiling) {
+          const smileDuration = now - smileStateRef.current.startTime;
+          const timeSinceLastSent = now - smileStateRef.current.lastSent;
+          
+          if (smileDuration >= 300 && smileDuration <= 2000 && timeSinceLastSent > 1500) {
+            isSmiling = true;
+            smileStateRef.current.lastSent = now;
+            console.log('😁✅ CONFIRMED SMILE! Duration:', smileDuration + 'ms');
+          }
+          
+          smileStateRef.current = {
+            isSmiling: false,
+            startTime: 0,
+            lastSent: smileStateRef.current.lastSent,
+          };
+        }
+
+        // SURPRISE DETECTION
+        const jawOpenScore = blendshapes.categories?.find((c: any) => c.categoryName === "jawOpen")?.score || 0;
+        const browInnerUpScore = blendshapes.categories?.find((c: any) => c.categoryName === "browInnerUp")?.score || 0;
+        let isSurprised = false;
+        
+        const surpriseScore = (jawOpenScore + browInnerUpScore) / 2;
+        const SURPRISE_THRESHOLD = 0.5;
+        
+        if (surpriseScore > SURPRISE_THRESHOLD && jawOpenScore > 0.4 && browInnerUpScore > 0.4) {
+          if (!surpriseStateRef.current.isSurprised) {
+            surpriseStateRef.current = {
+              isSurprised: true,
+              startTime: now,
+              lastSent: surpriseStateRef.current.lastSent,
+            };
+            console.log('😮 SURPRISE started! Score:', surpriseScore.toFixed(2));
+          }
+        } else if (surpriseStateRef.current.isSurprised) {
+          const surpriseDuration = now - surpriseStateRef.current.startTime;
+          const timeSinceLastSent = now - surpriseStateRef.current.lastSent;
+          
+          if (surpriseDuration >= 200 && surpriseDuration <= 1500 && timeSinceLastSent > 1500) {
+            isSurprised = true;
+            surpriseStateRef.current.lastSent = now;
+            console.log('😮✅ CONFIRMED SURPRISE! Duration:', surpriseDuration + 'ms');
+          }
+          
+          surpriseStateRef.current = {
+            isSurprised: false,
+            startTime: 0,
+            lastSent: surpriseStateRef.current.lastSent,
+          };
+        }
       }
 
       // Combine all factors:
@@ -244,7 +338,7 @@ export function useEyeContactDetection(
         });
       }
 
-      return { isLooking, confidence: overallConfidence, isWinking, winkEye };
+      return { isLooking, confidence: overallConfidence, isWinking, winkEye, isSmiling, isSurprised };
     };
 
     const detect = () => {
@@ -269,13 +363,17 @@ export function useEyeContactDetection(
           isLooking, 
           confidence, 
           isWinking: winking, 
-          winkEye: eye
+          winkEye: eye,
+          isSmiling: smiling,
+          isSurprised: surprised
         } = calculateEyeContactFromLandmarks(result);
         
         setIsLookingAtCamera(isLooking);
         setConfidence(confidence);
         setIsWinking(winking);
         setWinkEye(eye);
+        setIsSmiling(smiling);
+        setIsSurprised(surprised);
       } catch (error) {
         console.error("Detection error:", error);
       }
@@ -303,6 +401,6 @@ export function useEyeContactDetection(
     };
   }, [videoElement, enabled]);
 
-  return { isLookingAtCamera, confidence, isWinking, winkEye };
+  return { isLookingAtCamera, confidence, isWinking, winkEye, isSmiling, isSurprised };
 }
 

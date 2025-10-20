@@ -373,71 +373,6 @@ export function useLiveKitEyeContact(
           };
         }
         
-        // TONGUE OUT DETECTION
-        const tongueOutScore = blendshapes.categories?.find((c: any) => c.categoryName === "tongueOut")?.score || 0;
-        
-        const TONGUE_THRESHOLD = 0.3;
-        
-        if (tongueOutScore > TONGUE_THRESHOLD) {
-          if (!tongueStateRef.current.isTongueOut) {
-            tongueStateRef.current = {
-              isTongueOut: true,
-              startTime: now,
-              lastSent: tongueStateRef.current.lastSent,
-            };
-            console.log('👅 TONGUE OUT started! Score:', tongueOutScore.toFixed(2));
-          }
-        } else if (tongueStateRef.current.isTongueOut) {
-          const tongueDuration = now - tongueStateRef.current.startTime;
-          const timeSinceLastSent = now - tongueStateRef.current.lastSent;
-          
-          if (tongueDuration >= 200 && tongueDuration <= 1000 && timeSinceLastSent > 1000) {
-            isTongueOut = true;
-            tongueStateRef.current.lastSent = now;
-            console.log('👅✅ CONFIRMED TONGUE OUT! Duration:', tongueDuration + 'ms');
-          }
-          
-          tongueStateRef.current = {
-            isTongueOut: false,
-            startTime: 0,
-            lastSent: tongueStateRef.current.lastSent,
-          };
-        }
-
-        // KISS DETECTION (mouth pucker)
-        const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
-        const mouthFunnelScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthFunnel")?.score || 0;
-        
-        const kissScore = Math.max(mouthPuckerScore, mouthFunnelScore);
-        
-        const KISS_THRESHOLD = 0.4;
-        
-        if (kissScore > KISS_THRESHOLD) {
-          if (!kissStateRef.current.isKissing) {
-            kissStateRef.current = {
-              isKissing: true,
-              startTime: now,
-              lastSent: kissStateRef.current.lastSent,
-            };
-            console.log('💋 KISS started! Score:', kissScore.toFixed(2));
-          }
-        } else if (kissStateRef.current.isKissing) {
-          const kissDuration = now - kissStateRef.current.startTime;
-          const timeSinceLastSent = now - kissStateRef.current.lastSent;
-          
-          if (kissDuration >= 200 && kissDuration <= 1200 && timeSinceLastSent > 1000) {
-            isKissing = true;
-            kissStateRef.current.lastSent = now;
-            console.log('💋✅ CONFIRMED KISS! Duration:', kissDuration + 'ms');
-          }
-          
-          kissStateRef.current = {
-            isKissing: false,
-            startTime: 0,
-            lastSent: kissStateRef.current.lastSent,
-          };
-        }
-        
         eyeOpennessConfidence = 1 - (leftEyeBlink + rightEyeBlink) / 2;
       } else {
         // METHOD 2: FALLBACK - Use Eye Aspect Ratio (EAR) with landmarks only
@@ -534,8 +469,6 @@ export function useLiveKitEyeContact(
         timestamp: Date.now(),
         isWinking,
         winkEye,
-        isTongueOut,
-        isKissing,
         // Add raw blink values for debugging
         leftBlink: leftEyeBlink,
         rightBlink: rightEyeBlink,
@@ -590,10 +523,24 @@ export function useLiveKitEyeContact(
       lastDetectionTime.current = now;
 
       try {
+        // Additional safety checks
+        if (!targetVideo.videoWidth || !targetVideo.videoHeight) {
+          console.log('⚠️ Video has no dimensions yet:', targetVideo.videoWidth, 'x', targetVideo.videoHeight);
+          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+          return;
+        }
+
         const result = faceLandmarkerRef.current.detectForVideo(
           targetVideo,
           now
         );
+        
+        if (!result) {
+          console.log('⚠️ No result from face detection');
+          animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));
+          return;
+        }
+        
         const gazeData = calculateGazeFromLandmarks(result);
 
         // Update local state
@@ -605,15 +552,19 @@ export function useLiveKitEyeContact(
             isMutualEyeContact: isMutual,
             localWinking: gazeData.isWinking,
             localWinkEye: gazeData.winkEye,
-            localTongueOut: gazeData.isTongueOut,
-            localKissing: gazeData.isKissing,
           };
         });
 
         // Send to remote participant
         sendGazeData(gazeData);
       } catch (error) {
-        console.error("Detection error:", error);
+        console.error("❌ Detection error:", error);
+        console.error("Error details:", {
+          hasLandmarker: !!faceLandmarkerRef.current,
+          hasVideo: !!targetVideo,
+          videoReady: targetVideo?.readyState,
+          videoDimensions: `${targetVideo?.videoWidth}x${targetVideo?.videoHeight}`
+        });
       }
 
       animationFrameRef.current = requestAnimationFrame(() => detect(videoEl));

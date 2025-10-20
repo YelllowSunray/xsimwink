@@ -14,7 +14,7 @@ interface LiveKitEyeContactOverlayProps {
 
 interface GestureAnimation {
   id: string;
-  type: 'wink' | 'tongue' | 'kiss' | 'peace' | 'thumbsUp' | 'rockOn' | 'okSign';
+  type: 'wink' | 'peace' | 'thumbsUp' | 'rockOn' | 'okSign';
   side?: 'left' | 'right';
   timestamp: number;
   emoji: string;
@@ -43,10 +43,6 @@ export default function LiveKitEyeContactOverlay({
     remoteWinking,
     localWinkEye,
     remoteWinkEye,
-    localTongueOut,
-    remoteTongueOut,
-    localKissing,
-    remoteKissing,
   } = eyeContactState;
 
   const [localGestureAnimations, setLocalGestureAnimations] = useState<GestureAnimation[]>([]);
@@ -88,8 +84,8 @@ export default function LiveKitEyeContactOverlay({
         setRemoteGestureAnimations(prev => [...prev, newGesture]);
       }
       
-      // Remove animation after 2-3 seconds (depending on gesture)
-      const duration = type === 'kiss' ? 3000 : 2000;
+      // Remove animation after 2 seconds
+      const duration = 2000;
       setTimeout(() => {
         if (isLocal) {
           setLocalGestureAnimations(prev => prev.filter(g => g.id !== newGesture.id));
@@ -103,24 +99,12 @@ export default function LiveKitEyeContactOverlay({
     if (localWinking && localWinkEye) {
       addGestureAnimation(true, 'wink', '😉', localWinkEye);
     }
-    if (localTongueOut) {
-      addGestureAnimation(true, 'tongue', '👅');
-    }
-    if (localKissing) {
-      addGestureAnimation(true, 'kiss', '💋');
-    }
     
     // Remote gestures
     if (remoteWinking && remoteWinkEye) {
       addGestureAnimation(false, 'wink', '😉', remoteWinkEye);
     }
-    if (remoteTongueOut) {
-      addGestureAnimation(false, 'tongue', '👅');
-    }
-    if (remoteKissing) {
-      addGestureAnimation(false, 'kiss', '💋');
-    }
-  }, [localWinking, localWinkEye, localTongueOut, localKissing, remoteWinking, remoteWinkEye, remoteTongueOut, remoteKissing]);
+  }, [localWinking, localWinkEye, remoteWinking, remoteWinkEye]);
 
   // Manual testing (kept for backward compatibility)
   useEffect(() => {
@@ -172,20 +156,13 @@ export default function LiveKitEyeContactOverlay({
     return 1.3;
   };
 
-  // Get animation style based on gesture type
-  const getAnimationName = (type: GestureAnimation['type']): string => {
-    switch (type) {
-      case 'kiss':
-        return 'kissFloat';
-      case 'tongue':
-        return 'tongueFloat';
-      default:
-        return 'gestureFloat';
-    }
+  // Get animation name
+  const getAnimationName = (): string => {
+    return 'gestureFloat';
   };
 
-  const getAnimationDuration = (type: GestureAnimation['type']): string => {
-    return type === 'kiss' ? '3s' : '2s';
+  const getAnimationDuration = (): string => {
+    return '2s';
   };
 
   return (
@@ -196,7 +173,7 @@ export default function LiveKitEyeContactOverlay({
           key={gesture.id}
           className="absolute bottom-28 right-20 z-30"
           style={{
-            animation: `${getAnimationName(gesture.type)} ${getAnimationDuration(gesture.type)} ease-out forwards`,
+            animation: `${getAnimationName()} ${getAnimationDuration()} ease-out forwards`,
           }}
         >
           <div className="text-6xl animate-pulse drop-shadow-lg">
@@ -211,12 +188,12 @@ export default function LiveKitEyeContactOverlay({
           key={gesture.id}
           className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-30"
           style={{
-            animation: `${getAnimationName(gesture.type)} ${getAnimationDuration(gesture.type)} ease-out forwards`,
+            animation: `${getAnimationName()} ${getAnimationDuration()} ease-out forwards`,
             marginLeft: `${(index % 3 - 1) * 100}px`,
             marginTop: `${(Math.floor(index / 3) - 1) * 100}px`,
           }}
         >
-          <div className={`${gesture.type === 'kiss' ? 'text-9xl' : 'text-8xl'} animate-pulse drop-shadow-2xl`}>
+          <div className="text-8xl animate-pulse drop-shadow-2xl">
             {gesture.emoji}
           </div>
         </div>
@@ -393,12 +370,6 @@ export default function LiveKitEyeContactOverlay({
               <p className={`text-gray-300 font-bold ${localWinking ? 'text-yellow-400' : ''}`}>
                 Winking: {localWinking ? `😉 ${localWinkEye}` : "❌"}
               </p>
-              <p className={`text-gray-300 font-bold ${localTongueOut ? 'text-pink-400' : ''}`}>
-                Tongue: {localTongueOut ? "👅 Yes" : "❌"}
-              </p>
-              <p className={`text-gray-300 font-bold ${localKissing ? 'text-red-400' : ''}`}>
-                Kiss: {localKissing ? "💋 Yes" : "❌"}
-              </p>
             </div>
           )}
 
@@ -417,12 +388,6 @@ export default function LiveKitEyeContactOverlay({
               </p>
               <p className={`text-gray-300 font-bold ${remoteWinking ? 'text-yellow-400' : ''}`}>
                 Winking: {remoteWinking ? `😉 ${remoteWinkEye}` : "❌"}
-              </p>
-              <p className={`text-gray-300 font-bold ${remoteTongueOut ? 'text-pink-400' : ''}`}>
-                Tongue: {remoteTongueOut ? "👅 Yes" : "❌"}
-              </p>
-              <p className={`text-gray-300 font-bold ${remoteKissing ? 'text-red-400' : ''}`}>
-                Kiss: {remoteKissing ? "💋 Yes" : "❌"}
               </p>
               <p className="text-gray-300 text-xs">
                 Age: {Date.now() - remoteGaze.timestamp}ms
@@ -470,43 +435,6 @@ export default function LiveKitEyeContactOverlay({
           100% {
             opacity: 0;
             transform: scale(0.8) translateY(-80px) rotate(-10deg);
-          }
-        }
-
-        @keyframes kissFloat {
-          0% {
-            opacity: 1;
-            transform: scale(1) translateY(0) rotate(0deg);
-          }
-          30% {
-            transform: scale(1.5) translateY(-20px) rotate(5deg);
-          }
-          60% {
-            transform: scale(1.8) translateY(-50px) rotate(-5deg);
-          }
-          100% {
-            opacity: 0;
-            transform: scale(1.2) translateY(-120px) rotate(15deg);
-          }
-        }
-
-        @keyframes tongueFloat {
-          0% {
-            opacity: 1;
-            transform: scale(1) translateY(0) rotate(0deg);
-          }
-          25% {
-            transform: scale(1.2) translateY(-15px) rotate(-5deg);
-          }
-          50% {
-            transform: scale(1.4) translateY(-35px) rotate(5deg);
-          }
-          75% {
-            transform: scale(1.2) translateY(-60px) rotate(-5deg);
-          }
-          100% {
-            opacity: 0;
-            transform: scale(0.9) translateY(-90px) rotate(10deg);
           }
         }
       `}</style>
