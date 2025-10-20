@@ -1492,18 +1492,11 @@ function VideoChatLiveKitInner({
           dynacast: true,
           publishDefaults: {
             videoSimulcastLayers: [
-              { resolution: VideoPresets.h90, encoding: { maxBitrate: 100_000 } },
-              { resolution: VideoPresets.h180, encoding: { maxBitrate: 300_000 } },
-              { resolution: VideoPresets.h360, encoding: { maxBitrate: 500_000 } }
+              VideoPresets.h90,
+              VideoPresets.h180,
+              VideoPresets.h360
             ],
             videoCodec: 'h264', // Better iOS compatibility
-          },
-          // iOS Safari compatibility
-          webRtcConfig: {
-            iceServers: [
-              { urls: 'stun:stun.l.google.com:19302' },
-              { urls: 'stun:stun1.l.google.com:19302' }
-            ]
           }
         }}
       >

@@ -7,6 +7,7 @@ import {
   AudioTrack,
   useParticipants,
   useTracks,
+  TrackReference,
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import LiveKitEyeContactOverlay from "./LiveKitEyeContactOverlay";
@@ -24,6 +25,8 @@ interface LiveKitVideoWithEyeContactProps {
 function RoomContent() {
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
+  const localTrackRef = useRef<HTMLVideoElement>(null);
+  const remoteTrackRef = useRef<HTMLVideoElement>(null);
   const [eyeContactEnabled, setEyeContactEnabled] = useState(true);
   const [showDebug, setShowDebug] = useState(false);
   const [manualLocalWink, setManualLocalWink] = useState(false);
@@ -42,37 +45,47 @@ function RoomContent() {
   );
 
   // Separate local and remote tracks
+  // Filter out placeholders by checking for publication and explicitly type as TrackReference
   const localVideoTrack = tracks.find(
-    (track) => track.participant.isLocal && track.source === Track.Source.Camera
-  );
+    (track) => track.participant.isLocal && track.source === Track.Source.Camera && track.publication
+  ) as TrackReference | undefined;
+  
   const remoteVideoTrack = tracks.find(
-    (track) => !track.participant.isLocal && track.source === Track.Source.Camera
-  );
+    (track) => !track.participant.isLocal && track.source === Track.Source.Camera && track.publication
+  ) as TrackReference | undefined;
 
   const localAudioTrack = tracks.find(
-    (track) => track.participant.isLocal && track.source === Track.Source.Microphone
-  );
+    (track) => track.participant.isLocal && track.source === Track.Source.Microphone && track.publication
+  ) as TrackReference | undefined;
+  
   const remoteAudioTrack = tracks.find(
-    (track) => !track.participant.isLocal && track.source === Track.Source.Microphone
-  );
+    (track) => !track.participant.isLocal && track.source === Track.Source.Microphone && track.publication
+  ) as TrackReference | undefined;
+
+  // Capture video elements from VideoTrack refs
+  React.useEffect(() => {
+    if (localTrackRef.current) {
+      localVideoRef.current = localTrackRef.current;
+      console.log('✅ Local video element attached');
+    }
+  }, [localVideoTrack]);
+
+  React.useEffect(() => {
+    if (remoteTrackRef.current) {
+      remoteVideoRef.current = remoteTrackRef.current;
+      console.log('✅ Remote video element attached');
+    }
+  }, [remoteVideoTrack]);
 
   return (
     <div className="relative w-full h-screen bg-black">
       {/* Remote Video (Full Screen) */}
       <div className="absolute inset-0">
-        {remoteVideoTrack && remoteVideoTrack.publication ? (
+        {remoteVideoTrack ? (
           <VideoTrack
-            trackRef={remoteVideoTrack as any}
+            ref={remoteTrackRef}
+            trackRef={remoteVideoTrack}
             className="w-full h-full object-contain"
-            onVideoPlayingChange={(playing) => {
-              if (playing && remoteVideoTrack.publication?.track) {
-                const videoElement = remoteVideoTrack.publication.track.attachedElements[0];
-                if (videoElement && videoElement instanceof HTMLVideoElement) {
-                  (remoteVideoRef as any).current = videoElement;
-                  console.log('✅ Remote video element attached:', videoElement.videoWidth, 'x', videoElement.videoHeight);
-                }
-              }
-            }}
           />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
@@ -101,19 +114,11 @@ function RoomContent() {
 
       {/* Local Video (Picture-in-Picture) */}
       <div className="absolute bottom-24 right-4 w-48 h-36 rounded-lg overflow-hidden border-2 border-pink-500 shadow-2xl z-20">
-        {localVideoTrack && localVideoTrack.publication ? (
+        {localVideoTrack ? (
           <VideoTrack
-            trackRef={localVideoTrack as any}
+            ref={localTrackRef}
+            trackRef={localVideoTrack}
             className="w-full h-full object-cover scale-x-[-1]"
-            onVideoPlayingChange={(playing) => {
-              if (playing && localVideoTrack.publication?.track) {
-                const videoElement = localVideoTrack.publication.track.attachedElements[0];
-                if (videoElement && videoElement instanceof HTMLVideoElement) {
-                  (localVideoRef as any).current = videoElement;
-                  console.log('✅ Local video element attached:', videoElement.videoWidth, 'x', videoElement.videoHeight);
-                }
-              }
-            }}
           />
         ) : (
           <div className="w-full h-full bg-gray-800 flex items-center justify-center">

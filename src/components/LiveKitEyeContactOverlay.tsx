@@ -4,8 +4,8 @@ import React, { useRef, useEffect, useState } from "react";
 import { useLiveKitEyeContact } from "@/hooks/useLiveKitEyeContact";
 
 interface LiveKitEyeContactOverlayProps {
-  localVideoRef: React.RefObject<HTMLVideoElement>;
-  remoteVideoRef: React.RefObject<HTMLVideoElement>;
+  localVideoRef: React.RefObject<HTMLVideoElement | null>;
+  remoteVideoRef: React.RefObject<HTMLVideoElement | null>;
   enabled?: boolean;
   showDebugInfo?: boolean;
   manualLocalWink?: boolean;
@@ -14,7 +14,7 @@ interface LiveKitEyeContactOverlayProps {
 
 interface GestureAnimation {
   id: string;
-  type: 'wink' | 'tongue';
+  type: 'wink';
   side?: 'left' | 'right';
   timestamp: number;
   emoji: string;
@@ -43,8 +43,6 @@ export default function LiveKitEyeContactOverlay({
     remoteWinking,
     localWinkEye,
     remoteWinkEye,
-    localTongueOut,
-    remoteTongueOut,
   } = eyeContactState;
 
   const [localGestureAnimations, setLocalGestureAnimations] = useState<GestureAnimation[]>([]);
@@ -102,19 +100,11 @@ export default function LiveKitEyeContactOverlay({
       addGestureAnimation(true, 'wink', '😉', localWinkEye);
     }
     
-    if (localTongueOut) {
-      addGestureAnimation(true, 'tongue', '👅');
-    }
-    
     // Remote gestures
     if (remoteWinking && remoteWinkEye) {
       addGestureAnimation(false, 'wink', '😉', remoteWinkEye);
     }
-    
-    if (remoteTongueOut) {
-      addGestureAnimation(false, 'tongue', '👅');
-    }
-  }, [localWinking, localWinkEye, localTongueOut, remoteWinking, remoteWinkEye, remoteTongueOut]);
+  }, [localWinking, localWinkEye, remoteWinking, remoteWinkEye]);
 
   // Manual testing (kept for backward compatibility)
   useEffect(() => {

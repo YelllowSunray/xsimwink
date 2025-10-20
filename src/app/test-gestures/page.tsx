@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import { useEyeContactDetection } from "@/hooks/useEyeContactDetection";
-import { useHandGestureDetection } from "@/hooks/useHandGestureDetection";
 
 export default function TestGesturesPage() {
   const [cameraEnabled, setCameraEnabled] = useState(false);
@@ -15,20 +14,18 @@ export default function TestGesturesPage() {
     isLookingAtCamera, 
     confidence, 
     isWinking, 
-    winkEye, 
-    isTongueOut, 
-    isKissing 
+    winkEye
   } = useEyeContactDetection(videoRef.current, faceDetectionEnabled);
   
-  // Hand gestures
-  const { 
-    isPeaceSign, 
-    isThumbsUp, 
-    isHeartHand, 
-    isRockOn, 
-    isOkSign,
-    handedness 
-  } = useHandGestureDetection(videoRef.current, handDetectionEnabled);
+  // Tongue detection not yet implemented
+  const isTongueOut = false;
+  
+  // Hand gestures - TODO: Not implemented yet
+  const isPeaceSign = false;
+  const isThumbsUp = false;
+  const isRockOn = false;
+  const isOkSign = false;
+  const handedness = null;
   
   // Gesture history
   const [gestureHistory, setGestureHistory] = useState<Array<{
@@ -41,7 +38,6 @@ export default function TestGesturesPage() {
   const [gestureCount, setGestureCount] = useState({
     wink: 0,
     tongue: 0,
-    kiss: 0,
     peace: 0,
     thumbsUp: 0,
     rock: 0,
@@ -73,17 +69,6 @@ export default function TestGesturesPage() {
     }
   }, [isTongueOut]);
 
-  useEffect(() => {
-    if (isKissing) {
-      setGestureHistory(prev => [...prev, {
-        id: Date.now(),
-        emoji: '💋',
-        name: 'Kiss',
-        timestamp: new Date(),
-      }].slice(-10));
-      setGestureCount(prev => ({ ...prev, kiss: prev.kiss + 1 }));
-    }
-  }, [isKissing]);
 
   useEffect(() => {
     if (isPeaceSign) {
@@ -162,7 +147,6 @@ export default function TestGesturesPage() {
     setGestureCount({
       wink: 0,
       tongue: 0,
-      kiss: 0,
       peace: 0,
       thumbsUp: 0,
       rock: 0,
@@ -175,7 +159,12 @@ export default function TestGesturesPage() {
     <div className="min-h-screen bg-gradient-to-br from-purple-900 via-pink-800 to-red-900 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-4xl font-bold text-white mb-2">🎭 Gesture Detection Test Lab</h1>
-        <p className="text-pink-200 mb-8">Test all facial expressions and hand gestures in real-time!</p>
+        <p className="text-pink-200 mb-8">Test facial gestures in real-time! (Winks 😉 and Tongue 👅)</p>
+        <div className="bg-yellow-900/30 border border-yellow-500/50 rounded-lg p-4 mb-6">
+          <p className="text-yellow-200 text-sm">
+            ⚠️ <strong>Note:</strong> Hand gesture detection is not yet implemented. Only face gestures (winks and tongue out) work currently.
+          </p>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Video Feed */}
@@ -219,10 +208,6 @@ export default function TestGesturesPage() {
                           <div className={`flex items-center gap-2 ${isTongueOut ? 'text-pink-300 animate-pulse' : 'text-gray-400'}`}>
                             <span className="text-2xl">👅</span>
                             <span className="text-xs">{isTongueOut ? 'Yes' : 'No'}</span>
-                          </div>
-                          <div className={`flex items-center gap-2 ${isKissing ? 'text-red-300 animate-pulse' : 'text-gray-400'}`}>
-                            <span className="text-2xl">💋</span>
-                            <span className="text-xs">{isKissing ? 'Yes' : 'No'}</span>
                           </div>
                         </div>
                         <div className="mt-2 text-xs text-gray-300">
@@ -321,10 +306,6 @@ export default function TestGesturesPage() {
                   <span className="font-bold">{gestureCount.tongue}</span>
                 </div>
                 <div className="flex justify-between text-white">
-                  <span>💋 Kisses:</span>
-                  <span className="font-bold">{gestureCount.kiss}</span>
-                </div>
-                <div className="flex justify-between text-white">
                   <span>✌️ Peace Signs:</span>
                   <span className="font-bold">{gestureCount.peace}</span>
                 </div>
@@ -372,7 +353,6 @@ export default function TestGesturesPage() {
                 <p>👁️ <strong>Eye Contact:</strong> Look directly at camera</p>
                 <p>😉 <strong>Wink:</strong> Close one eye briefly</p>
                 <p>👅 <strong>Tongue Out:</strong> Stick your tongue out</p>
-                <p>💋 <strong>Kiss:</strong> Pucker your lips</p>
                 <p>✌️ <strong>Peace:</strong> Two fingers up</p>
                 <p>👍 <strong>Thumbs Up:</strong> Thumb pointing up</p>
                 <p>🤘 <strong>Rock On:</strong> Index + pinky up</p>

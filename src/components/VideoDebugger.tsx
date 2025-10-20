@@ -3,8 +3,8 @@
 import React, { useEffect, useState } from "react";
 
 interface VideoDebuggerProps {
-  localVideoRef: React.RefObject<HTMLVideoElement>;
-  remoteVideoRef: React.RefObject<HTMLVideoElement>;
+  localVideoRef: React.RefObject<HTMLVideoElement | null>;
+  remoteVideoRef: React.RefObject<HTMLVideoElement | null>;
   connectionStatus: string;
 }
 
@@ -38,8 +38,8 @@ export default function VideoDebugger({
         userAgent,
         isIOS,
         isSafari,
-        localVideoReady: localVideoRef.current?.readyState >= 2,
-        remoteVideoReady: remoteVideoRef.current?.readyState >= 2,
+        localVideoReady: (localVideoRef.current?.readyState ?? 0) >= 2,
+        remoteVideoReady: (remoteVideoRef.current?.readyState ?? 0) >= 2,
         localVideoDimensions: {
           width: localVideoRef.current?.videoWidth || 0,
           height: localVideoRef.current?.videoHeight || 0
