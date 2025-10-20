@@ -642,10 +642,10 @@ export function useLiveKitEyeContact(
         const mouthPuckerScore = blendshapes.categories?.find((c: any) => c.categoryName === "mouthPucker")?.score || 0;
         
         // Debug logging - ALWAYS show pucker score (every frame)
-        console.log('💋 Pucker score:', mouthPuckerScore.toFixed(3), '(threshold: 0.85 - VERY HARD)');
+        console.log('💋 Pucker score:', mouthPuckerScore.toFixed(3), '(threshold: 0.92 - EXTREMELY HARD)');
         
-        // VERY hard threshold - must be > 0.85 to trigger (extremely deliberate kiss/pucker)
-        if (mouthPuckerScore > 0.85) {
+        // EXTREMELY hard threshold - must be > 0.92 to trigger (only very deliberate kiss/pucker)
+        if (mouthPuckerScore > 0.92) {
           isKissing = true;
           console.log('💋✅ KISS TRIGGERED! Score:', mouthPuckerScore.toFixed(2));
         }

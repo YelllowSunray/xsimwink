@@ -22,10 +22,20 @@ export default function AttentionDashboard({
   eyeContactDuration,
 }: AttentionDashboardProps) {
   const { localAttentionScore, remoteAttentionScore, mutualAttentionTime, totalCallTime, interestLevel } = attentionMetrics;
-  const [isMinimized, setIsMinimized] = React.useState(false);
-  const [position, setPosition] = React.useState({ 
-    x: window.innerWidth - 320, // Start near right edge
-    y: window.innerHeight - 400  // Start near bottom
+  // Start minimized on mobile to save screen space
+  const [isMinimized, setIsMinimized] = React.useState(() => {
+    return typeof window !== 'undefined' && window.innerWidth < 768;
+  });
+  const [position, setPosition] = React.useState(() => {
+    // Mobile-first positioning
+    const isMobile = typeof window !== 'undefined' && window.innerWidth < 768;
+    if (isMobile) {
+      return { x: 10, y: 10 }; // Top-left on mobile to avoid covering video
+    }
+    return { 
+      x: typeof window !== 'undefined' ? window.innerWidth - 320 : 300, 
+      y: typeof window !== 'undefined' ? window.innerHeight - 400 : 100 
+    };
   });
   const [isDragging, setIsDragging] = React.useState(false);
   const [dragStart, setDragStart] = React.useState({ x: 0, y: 0 });
@@ -77,6 +87,21 @@ export default function AttentionDashboard({
     }
   };
 
+  // Handle touch start for mobile
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if ((e.target as HTMLElement).closest('button')) return; // Don't drag when touching buttons
+    
+    const touch = e.touches[0];
+    setIsDragging(true);
+    const rect = dashboardRef.current?.getBoundingClientRect();
+    if (rect) {
+      setDragStart({
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top,
+      });
+    }
+  };
+
   const handleMouseMove = React.useCallback((e: MouseEvent) => {
     if (!isDragging) return;
     
@@ -93,31 +118,62 @@ export default function AttentionDashboard({
     });
   }, [isDragging, dragStart]);
 
+  const handleTouchMove = React.useCallback((e: TouchEvent) => {
+    if (!isDragging) return;
+    e.preventDefault(); // Prevent scrolling
+    
+    const touch = e.touches[0];
+    const newX = touch.clientX - dragStart.x;
+    const newY = touch.clientY - dragStart.y;
+    
+    // Keep within screen bounds
+    const maxX = window.innerWidth - (dashboardRef.current?.offsetWidth || 0);
+    const maxY = window.innerHeight - (dashboardRef.current?.offsetHeight || 0);
+    
+    setPosition({
+      x: Math.max(0, Math.min(newX, maxX)),
+      y: Math.max(0, Math.min(newY, maxY)),
+    });
+  }, [isDragging, dragStart]);
+
   const handleMouseUp = React.useCallback(() => {
     setIsDragging(false);
   }, []);
 
-  // Add event listeners for drag
+  const handleTouchEnd = React.useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Add event listeners for drag (mouse and touch)
   React.useEffect(() => {
     if (isDragging) {
       document.addEventListener('mousemove', handleMouseMove);
       document.addEventListener('mouseup', handleMouseUp);
+      document.addEventListener('touchmove', handleTouchMove, { passive: false });
+      document.addEventListener('touchend', handleTouchEnd);
       document.body.style.cursor = 'grabbing';
       document.body.style.userSelect = 'none';
+      document.body.style.touchAction = 'none'; // Prevent scrolling on mobile
     } else {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      document.body.style.touchAction = '';
     }
 
     return () => {
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
+      document.removeEventListener('touchmove', handleTouchMove);
+      document.removeEventListener('touchend', handleTouchEnd);
       document.body.style.cursor = '';
       document.body.style.userSelect = '';
+      document.body.style.touchAction = '';
     };
-  }, [isDragging, handleMouseMove, handleMouseUp]);
+  }, [isDragging, handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
   return (
     <div 
@@ -129,44 +185,46 @@ export default function AttentionDashboard({
     >
       <div 
         ref={dashboardRef}
-        className={`bg-black/80 backdrop-blur-lg rounded-2xl shadow-2xl border-2 border-white/20 pointer-events-auto transition-all duration-300 ${
-          isMinimized ? 'p-3 max-w-fit' : 'p-5 max-w-xs'
-        } ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+        className={`bg-black/90 backdrop-blur-lg rounded-2xl shadow-2xl border-2 border-white/20 pointer-events-auto transition-all duration-300 ${
+          isMinimized ? 'p-2 sm:p-3 max-w-fit' : 'p-3 sm:p-5 max-w-xs sm:max-w-sm'
+        } ${isDragging ? 'cursor-grabbing' : 'cursor-grab'} touch-none select-none`}
         onMouseDown={handleMouseDown}
+        onTouchStart={handleTouchStart}
         style={{
           transform: isDragging ? 'scale(1.02)' : 'scale(1)',
         }}
       >
         {/* Header */}
-        <div className="flex items-center justify-between mb-2">
-          <h3 className={`text-white font-bold flex items-center gap-2 ${isMinimized ? 'text-sm' : 'text-lg'}`}>
-            <span>👁️</span>
-            {!isMinimized && <span>Attention Tracker</span>}
+        <div className="flex items-center justify-between mb-1 sm:mb-2">
+          <h3 className={`text-white font-bold flex items-center gap-1 sm:gap-2 ${isMinimized ? 'text-xs sm:text-sm' : 'text-sm sm:text-lg'}`}>
+            <span className={isMinimized ? 'text-sm' : 'text-base'}>👁️</span>
+            {!isMinimized && <span className="hidden sm:inline">Attention Tracker</span>}
+            {!isMinimized && <span className="sm:hidden">Attention</span>}
           </h3>
-          <div className="flex items-center gap-2">
-            {!isMinimized && <span className="text-4xl animate-pulse">{getInterestEmoji()}</span>}
+          <div className="flex items-center gap-1 sm:gap-2">
+            {!isMinimized && <span className={`animate-pulse ${isMinimized ? 'text-2xl' : 'text-2xl sm:text-4xl'}`}>{getInterestEmoji()}</span>}
             
-            {/* Drag Handle */}
+            {/* Drag Handle - Touch friendly */}
             <div 
-              className="text-white/50 hover:text-white/70 transition-colors cursor-grab active:cursor-grabbing p-1"
+              className="text-white/50 hover:text-white/70 transition-colors cursor-grab active:cursor-grabbing p-2 sm:p-1 touch-manipulation"
               title="Drag to move"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8h16M4 16h16" />
               </svg>
             </div>
             
             <button
               onClick={() => setIsMinimized(!isMinimized)}
-              className="text-white/70 hover:text-white transition-colors p-1 rounded cursor-pointer"
+              className="text-white/70 hover:text-white transition-colors p-2 sm:p-1 rounded cursor-pointer touch-manipulation"
               title={isMinimized ? "Expand attention tracker" : "Minimize attention tracker"}
             >
               {isMinimized ? (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4" />
                 </svg>
               ) : (
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M20 12H4" />
                 </svg>
               )}
@@ -174,14 +232,17 @@ export default function AttentionDashboard({
           </div>
         </div>
 
-        {/* Minimized View */}
+        {/* Minimized View - Mobile Optimized */}
         {isMinimized && (
-          <div className="flex items-center gap-3">
-            <span className="text-2xl">{getInterestEmoji()}</span>
-            <div className="text-white text-sm">
-              <div className="font-bold">{interestLevel.toUpperCase()}</div>
-              <div className="text-xs text-white/70">{mutualAttentionPercentage}% mutual</div>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <span className="text-xl sm:text-2xl">{getInterestEmoji()}</span>
+            <div className="text-white text-xs sm:text-sm">
+              <div className="font-bold text-xs sm:text-sm">{interestLevel.toUpperCase()}</div>
+              <div className="text-xs text-white/70">{mutualAttentionPercentage}%</div>
             </div>
+            {isMutualEyeContact && (
+              <div className="text-xs text-green-400 animate-pulse">👀</div>
+            )}
           </div>
         )}
 
