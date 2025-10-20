@@ -6,6 +6,8 @@ import { VideoStorageService } from "@/utils/videoStorage";
 import { WebRTCService } from "@/services/WebRTCService";
 import { useEyeContactDetection } from "@/hooks/useEyeContactDetection";
 import VideoDebugger from "./VideoDebugger";
+import GestureOverlay from "./GestureOverlay";
+import AttentionDashboard from "./AttentionDashboard";
 
 interface VideoChatProps {
   partnerId: string;
@@ -26,6 +28,7 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
   const [needsUserGesture, setNeedsUserGesture] = useState(false);
   const [remoteIsLookingAtCamera, setRemoteIsLookingAtCamera] = useState(false);
   const [bothMakingEyeContact, setBothMakingEyeContact] = useState(false);
+  const [gesturesEnabled, setGesturesEnabled] = useState(true);
   
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -275,6 +278,13 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
           className="w-full h-full object-contain"
           style={{ backgroundColor: '#000' }}
         />
+        
+        {/* Gesture Overlay for local gestures */}
+        <GestureOverlay 
+          localVideoRef={localVideoRef}
+          enabled={connectionStatus === "connected"}
+          gesturesEnabled={gesturesEnabled}
+        />
 
           {needsUserGesture && (
             <div className="absolute inset-0 flex items-center justify-center bg-black/70">
@@ -483,6 +493,19 @@ export default function VideoChat({ partnerId, partnerName, onEndCall, connectio
                 </svg>
               </button>
             )}
+
+            {/* Gesture Toggle Button */}
+            <button
+              onClick={() => setGesturesEnabled(!gesturesEnabled)}
+              className={`p-3 md:p-4 rounded-full transition touch-target ${
+                gesturesEnabled
+                  ? "bg-purple-600 hover:bg-purple-700"
+                  : "bg-gray-700 hover:bg-gray-600"
+              }`}
+              title={gesturesEnabled ? "Disable gestures" : "Enable gestures"}
+            >
+              <span className="text-2xl">{gesturesEnabled ? '🎭' : '🚫'}</span>
+            </button>
 
             <button
               onClick={handleEndCall}

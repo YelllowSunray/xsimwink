@@ -2,6 +2,7 @@
 
 import React, { useRef, useEffect, useState, useCallback } from "react";
 import { useLiveKitEyeContact } from "@/hooks/useLiveKitEyeContact";
+import AttentionDashboard from "./AttentionDashboard";
 
 interface LiveKitEyeContactOverlayProps {
   localVideoRef: React.RefObject<HTMLVideoElement | null>;
@@ -15,7 +16,7 @@ interface LiveKitEyeContactOverlayProps {
 
 interface GestureAnimation {
   id: string;
-  type: 'wink' | 'tongue' | 'kiss' | 'vTongue';
+  type: 'wink' | 'tongue' | 'kiss' | 'vTongue' | 'peace' | 'thumbsUp' | 'okSign' | 'rockOn';
   side?: 'left' | 'right';
   timestamp: number;
   emoji: string;
@@ -47,8 +48,19 @@ export default function LiveKitEyeContactOverlay({
     remoteKissing,
     localVTongue,
     remoteVTongue,
+    localPeaceSign,
+    remotePeaceSign,
+    localThumbsUp,
+    remoteThumbsUp,
+    localOKSign,
+    remoteOKSign,
+    localRockOn,
+    remoteRockOn,
     comeCloserRequest,
     sendComeCloserRequest,
+    isMutualEyeContact,
+    eyeContactDuration,
+    attentionMetrics,
   } = eyeContactState;
 
   const [localGestureAnimations, setLocalGestureAnimations] = useState<GestureAnimation[]>([]);
@@ -134,7 +146,36 @@ export default function LiveKitEyeContactOverlay({
     if (remoteVTongue) {
       addGestureAnimation(false, 'vTongue', '🥵💦'); // Hot face + water droplets
     }
-  }, [localWinking, localWinkEye, localTongueOut, localKissing, localVTongue, remoteWinking, remoteWinkEye, remoteTongueOut, remoteKissing, remoteVTongue]);
+    
+    // New hand gestures
+    if (localPeaceSign) {
+      addGestureAnimation(true, 'peace', '✌️');
+    }
+    if (remotePeaceSign) {
+      addGestureAnimation(false, 'peace', '✌️');
+    }
+    
+    if (localThumbsUp) {
+      addGestureAnimation(true, 'thumbsUp', '👍');
+    }
+    if (remoteThumbsUp) {
+      addGestureAnimation(false, 'thumbsUp', '👍');
+    }
+    
+    if (localOKSign) {
+      addGestureAnimation(true, 'okSign', '👌');
+    }
+    if (remoteOKSign) {
+      addGestureAnimation(false, 'okSign', '👌');
+    }
+    
+    if (localRockOn) {
+      addGestureAnimation(true, 'rockOn', '🤟');
+    }
+    if (remoteRockOn) {
+      addGestureAnimation(false, 'rockOn', '🤟');
+    }
+  }, [localWinking, localWinkEye, localTongueOut, localKissing, localVTongue, localPeaceSign, localThumbsUp, localOKSign, localRockOn, remoteWinking, remoteWinkEye, remoteTongueOut, remoteKissing, remoteVTongue, remotePeaceSign, remoteThumbsUp, remoteOKSign, remoteRockOn]);
 
   // Manual testing (kept for backward compatibility)
   useEffect(() => {
@@ -225,14 +266,23 @@ export default function LiveKitEyeContactOverlay({
       {/* Come Closer Request Notification */}
       {comeCloserRequest && (
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-40 animate-bounce pointer-events-none">
-          <div className="bg-gradient-to-br from-orange-500 to-red-600 rounded-2xl p-8 shadow-2xl border-4 border-white">
+          <div className="bg-gradient-to-br from-pink-600 to-purple-600 rounded-3xl p-10 shadow-2xl border-4 border-white/70">
             <div className="text-center">
-              <div className="text-7xl mb-4">👋</div>
-              <p className="text-white text-3xl font-bold mb-2">Come Closer!</p>
-              <p className="text-white text-lg">Your partner wants to see you better 😊</p>
+              <div className="text-8xl mb-4 animate-pulse">📸</div>
+              <p className="text-white text-4xl font-bold mb-3">Bring Camera Closer!</p>
+              <p className="text-white text-xl opacity-95">Move your face closer to the camera 😊</p>
             </div>
           </div>
         </div>
+      )}
+
+      {/* Attention Dashboard */}
+      {enabled && (
+        <AttentionDashboard 
+          attentionMetrics={attentionMetrics}
+          isMutualEyeContact={isMutualEyeContact}
+          eyeContactDuration={eyeContactDuration}
+        />
       )}
 
       {/* CSS for wink animations */}

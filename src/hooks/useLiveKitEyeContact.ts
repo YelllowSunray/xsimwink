@@ -16,8 +16,20 @@ interface GazeData {
   isTongueOut: boolean;
   isKissing: boolean;
   isVTongue: boolean; // V-sign + tongue out combo
+  isPeaceSign: boolean; // V-sign alone
+  isThumbsUp: boolean;
+  isOKSign: boolean;
+  isRockOn: boolean;
   leftBlink?: number; // Debug: raw blink value
   rightBlink?: number; // Debug: raw blink value
+}
+
+interface AttentionMetrics {
+  localAttentionScore: number; // 0-100
+  remoteAttentionScore: number; // 0-100
+  mutualAttentionTime: number; // seconds
+  totalCallTime: number; // seconds
+  interestLevel: 'low' | 'medium' | 'high';
 }
 
 interface EyeContactState {
@@ -31,8 +43,22 @@ interface EyeContactState {
   remoteKissing: boolean;
   localVTongue: boolean;
   remoteVTongue: boolean;
+  localPeaceSign: boolean;
+  remotePeaceSign: boolean;
+  localThumbsUp: boolean;
+  remoteThumbsUp: boolean;
+  localOKSign: boolean;
+  remoteOKSign: boolean;
+  localRockOn: boolean;
+  remoteRockOn: boolean;
   comeCloserRequest: boolean;
   sendComeCloserRequest: () => void;
+  // Attention/Interest tracking
+  localGaze: GazeData | null;
+  remoteGaze: GazeData | null;
+  isMutualEyeContact: boolean;
+  eyeContactDuration: number;
+  attentionMetrics: AttentionMetrics;
 }
 
 export function useLiveKitEyeContact(
@@ -52,7 +78,26 @@ export function useLiveKitEyeContact(
     remoteKissing: false,
     localVTongue: false,
     remoteVTongue: false,
+    localPeaceSign: false,
+    remotePeaceSign: false,
+    localThumbsUp: false,
+    remoteThumbsUp: false,
+    localOKSign: false,
+    remoteOKSign: false,
+    localRockOn: false,
+    remoteRockOn: false,
     comeCloserRequest: false,
+    localGaze: null,
+    remoteGaze: null,
+    isMutualEyeContact: false,
+    eyeContactDuration: 0,
+    attentionMetrics: {
+      localAttentionScore: 0,
+      remoteAttentionScore: 0,
+      mutualAttentionTime: 0,
+      totalCallTime: 0,
+      interestLevel: 'low',
+    },
   });
 
   const faceLandmarkerRef = useRef<FaceLandmarker | null>(null);
@@ -61,6 +106,13 @@ export function useLiveKitEyeContact(
   const lastDetectionTime = useRef<number>(0);
   const isCleaningUpRef = useRef<boolean>(false);
   const lastHandDetection = useRef<{ isPeaceSign: boolean; handY: number; handX: number } | null>(null);
+  
+  // Attention tracking refs
+  const callStartTime = useRef<number>(Date.now());
+  const mutualEyeContactStartTime = useRef<number | null>(null);
+  const totalMutualEyeContactTime = useRef<number>(0);
+  const localLookingHistory = useRef<boolean[]>([]);
+  const remoteLookingHistory = useRef<boolean[]>([]);
   
   // Wink temporal detection
   const winkStateRef = useRef<{
@@ -82,7 +134,7 @@ export function useLiveKitEyeContact(
         new TextDecoder().decode(message.payload)
       );
       
-      // Handle wink, tongue, kiss, and V-tongue data
+      // Handle wink, tongue, kiss, and all gesture data
       if (remoteData.isWinking !== undefined) {
         setEyeContactState((prev) => ({
           ...prev,
@@ -91,7 +143,23 @@ export function useLiveKitEyeContact(
           remoteTongueOut: remoteData.isTongueOut || false,
           remoteKissing: remoteData.isKissing || false,
           remoteVTongue: remoteData.isVTongue || false,
+          remotePeaceSign: remoteData.isPeaceSign || false,
+          remoteThumbsUp: remoteData.isThumbsUp || false,
+          remoteOKSign: remoteData.isOKSign || false,
+          remoteRockOn: remoteData.isRockOn || false,
+          remoteGaze: remoteData as GazeData,
         }));
+        
+        // Track remote attention
+        if (remoteData.isLooking) {
+          remoteLookingHistory.current.push(true);
+        } else {
+          remoteLookingHistory.current.push(false);
+        }
+        // Keep last 100 frames (about 3 seconds at 30fps)
+        if (remoteLookingHistory.current.length > 100) {
+          remoteLookingHistory.current.shift();
+        }
       }
       
       // Handle come closer request
@@ -245,6 +313,86 @@ export function useLiveKitEyeContact(
       }
     };
 
+    // Detect Thumbs Up gesture
+    const detectThumbsUp = (landmarks: any[]): boolean => {
+      if (!landmarks || landmarks.length < 21) return false;
+      
+      const thumbTip = landmarks[4];
+      const thumbBase = landmarks[2];
+      const indexTip = landmarks[8];
+      const middleTip = landmarks[12];
+      const ringTip = landmarks[16];
+      const pinkyTip = landmarks[20];
+      
+      const wrist = landmarks[0];
+      
+      // Thumb should be extended upward
+      const thumbExtended = thumbTip.y < thumbBase.y - 0.1;
+      
+      // Other fingers should be curled
+      const indexCurled = indexTip.y > wrist.y;
+      const middleCurled = middleTip.y > wrist.y;
+      const ringCurled = ringTip.y > wrist.y;
+      const pinkyCurled = pinkyTip.y > wrist.y;
+      
+      return thumbExtended && indexCurled && middleCurled && ringCurled && pinkyCurled;
+    };
+    
+    // Detect OK Sign gesture (thumb + index forming circle)
+    const detectOKSign = (landmarks: any[]): boolean => {
+      if (!landmarks || landmarks.length < 21) return false;
+      
+      const thumbTip = landmarks[4];
+      const indexTip = landmarks[8];
+      const middleTip = landmarks[12];
+      const ringTip = landmarks[16];
+      const pinkyTip = landmarks[20];
+      
+      const middleBase = landmarks[9];
+      const ringBase = landmarks[13];
+      const pinkyBase = landmarks[17];
+      
+      // Distance between thumb and index tip (should be small for circle)
+      const distance = Math.sqrt(
+        Math.pow(thumbTip.x - indexTip.x, 2) + 
+        Math.pow(thumbTip.y - indexTip.y, 2)
+      );
+      
+      const circleFormed = distance < 0.05;
+      
+      // Other fingers should be extended
+      const middleExtended = middleTip.y < middleBase.y - 0.05;
+      const ringExtended = ringTip.y < ringBase.y - 0.05;
+      const pinkyExtended = pinkyTip.y < pinkyBase.y - 0.05;
+      
+      return circleFormed && middleExtended && ringExtended && pinkyExtended;
+    };
+    
+    // Detect Rock On gesture (index + pinky extended)
+    const detectRockOn = (landmarks: any[]): boolean => {
+      if (!landmarks || landmarks.length < 21) return false;
+      
+      const indexTip = landmarks[8];
+      const middleTip = landmarks[12];
+      const ringTip = landmarks[16];
+      const pinkyTip = landmarks[20];
+      
+      const indexBase = landmarks[5];
+      const middleBase = landmarks[9];
+      const ringBase = landmarks[13];
+      const pinkyBase = landmarks[17];
+      
+      // Index and pinky extended
+      const indexExtended = indexTip.y < indexBase.y - 0.05;
+      const pinkyExtended = pinkyTip.y < pinkyBase.y - 0.05;
+      
+      // Middle and ring curled
+      const middleCurled = Math.abs(middleTip.y - middleBase.y) < 0.08;
+      const ringCurled = Math.abs(ringTip.y - ringBase.y) < 0.08;
+      
+      return indexExtended && pinkyExtended && middleCurled && ringCurled;
+    };
+    
     // Detect V-sign (peace sign) from hand landmarks
     const detectVSign = (landmarks: any[]): { isPeaceSign: boolean; handY: number; handX: number } => {
       if (!landmarks || landmarks.length < 21) {
@@ -309,7 +457,7 @@ export function useLiveKitEyeContact(
       return (vertical1 + vertical2) / (2.0 * horizontal);
     };
 
-    const calculateWink = (result: any): { isWinking: boolean; winkEye: 'left' | 'right' | null; isTongueOut: boolean; isKissing: boolean; isVTongue: boolean } => {
+    const calculateWink = (result: any): { isWinking: boolean; winkEye: 'left' | 'right' | null; isTongueOut: boolean; isKissing: boolean; isVTongue: boolean; leftBlink: number; rightBlink: number } => {
       if (!result || !result.faceLandmarks || result.faceLandmarks.length === 0) {
         return {
           isWinking: false,
@@ -317,6 +465,8 @@ export function useLiveKitEyeContact(
           isTongueOut: false,
           isKissing: false,
           isVTongue: false,
+          leftBlink: 0,
+          rightBlink: 0,
         };
       }
 
@@ -682,9 +832,14 @@ export function useLiveKitEyeContact(
         }
         
         const faceData = calculateWink(result);
-        let { isWinking, winkEye, isTongueOut, isKissing, isVTongue } = faceData;
+        let { isWinking, winkEye, isTongueOut, isKissing, isVTongue, leftBlink, rightBlink } = faceData;
 
         // HAND DETECTION - Run in parallel
+        let isPeaceSign = false;
+        let isThumbsUp = false;
+        let isOKSign = false;
+        let isRockOn = false;
+        
         if (handLandmarkerRef.current && targetVideo) {
           try {
             const handResult = handLandmarkerRef.current.detectForVideo(
@@ -694,7 +849,13 @@ export function useLiveKitEyeContact(
             
             if (handResult && handResult.landmarks && handResult.landmarks.length > 0) {
               const handLandmarks = handResult.landmarks[0];
+              
+              // Detect all hand gestures
               const vSignData = detectVSign(handLandmarks);
+              isPeaceSign = vSignData.isPeaceSign;
+              isThumbsUp = detectThumbsUp(handLandmarks);
+              isOKSign = detectOKSign(handLandmarks);
+              isRockOn = detectRockOn(handLandmarks);
               
               // Store hand detection for combination with face data
               lastHandDetection.current = vSignData;
@@ -712,9 +873,18 @@ export function useLiveKitEyeContact(
                 }
               }
               
-              // Debug V-sign detection
-              if (vSignData.isPeaceSign) {
+              // Debug hand gesture detection
+              if (isPeaceSign) {
                 console.log('✌️ Peace sign detected at Y:', vSignData.handY.toFixed(2), 'X:', vSignData.handX.toFixed(2));
+              }
+              if (isThumbsUp) {
+                console.log('👍 Thumbs up detected!');
+              }
+              if (isOKSign) {
+                console.log('👌 OK sign detected!');
+              }
+              if (isRockOn) {
+                console.log('🤟 Rock on detected!');
               }
             } else {
               lastHandDetection.current = null;
@@ -734,14 +904,105 @@ export function useLiveKitEyeContact(
           });
         }
 
+        // Create local gaze data
+        const localGazeData: GazeData = {
+          gazeX: 0,
+          gazeY: 0,
+          isLooking: result.faceLandmarks && result.faceLandmarks.length > 0,
+          confidence: result.faceLandmarks && result.faceLandmarks.length > 0 ? 1.0 : 0.0,
+          timestamp: Date.now(),
+          isWinking,
+          winkEye,
+          isTongueOut,
+          isKissing,
+          isVTongue,
+          isPeaceSign,
+          isThumbsUp,
+          isOKSign,
+          isRockOn,
+          leftBlink: leftBlink,
+          rightBlink: rightBlink,
+        };
+        
+        // Track local attention
+        localLookingHistory.current.push(localGazeData.isLooking);
+        if (localLookingHistory.current.length > 100) {
+          localLookingHistory.current.shift();
+        }
+        
+        // Calculate attention metrics
+        const calculateAttentionMetrics = (): AttentionMetrics => {
+          const totalCallTime = (Date.now() - callStartTime.current) / 1000; // seconds
+          
+          // Calculate attention scores (percentage of time looking)
+          const localLooks = localLookingHistory.current.filter(Boolean).length;
+          const localAttentionScore = localLookingHistory.current.length > 0
+            ? Math.round((localLooks / localLookingHistory.current.length) * 100)
+            : 0;
+            
+          const remoteLooks = remoteLookingHistory.current.filter(Boolean).length;
+          const remoteAttentionScore = remoteLookingHistory.current.length > 0
+            ? Math.round((remoteLooks / remoteLookingHistory.current.length) * 100)
+            : 0;
+          
+          // Calculate mutual attention time
+          const isBothLooking = localGazeData.isLooking && eyeContactState.remoteGaze?.isLooking;
+          
+          if (isBothLooking && mutualEyeContactStartTime.current === null) {
+            mutualEyeContactStartTime.current = Date.now();
+          } else if (!isBothLooking && mutualEyeContactStartTime.current !== null) {
+            totalMutualEyeContactTime.current += (Date.now() - mutualEyeContactStartTime.current) / 1000;
+            mutualEyeContactStartTime.current = null;
+          }
+          
+          const currentMutualTime = mutualEyeContactStartTime.current !== null
+            ? (Date.now() - mutualEyeContactStartTime.current) / 1000
+            : 0;
+          const mutualAttentionTime = totalMutualEyeContactTime.current + currentMutualTime;
+          
+          // Determine interest level based on mutual attention percentage
+          const mutualAttentionPercentage = totalCallTime > 0 
+            ? (mutualAttentionTime / totalCallTime) * 100
+            : 0;
+          
+          let interestLevel: 'low' | 'medium' | 'high' = 'low';
+          if (mutualAttentionPercentage > 50) {
+            interestLevel = 'high';
+          } else if (mutualAttentionPercentage > 25) {
+            interestLevel = 'medium';
+          }
+          
+          return {
+            localAttentionScore,
+            remoteAttentionScore,
+            mutualAttentionTime,
+            totalCallTime,
+            interestLevel,
+          };
+        };
+        
+        const attentionMetrics = calculateAttentionMetrics();
+        const isMutualEyeContact = localGazeData.isLooking && eyeContactState.remoteGaze?.isLooking || false;
+        const eyeContactDuration = mutualEyeContactStartTime.current !== null
+          ? (Date.now() - mutualEyeContactStartTime.current) / 1000
+          : 0;
+
         // Update local state
         setEyeContactState((prev) => ({
-            ...prev,
+          ...prev,
           localWinking: isWinking,
           localWinkEye: winkEye,
           localTongueOut: isTongueOut,
           localKissing: isKissing,
           localVTongue: isVTongue,
+          localPeaceSign: isPeaceSign,
+          localThumbsUp: isThumbsUp,
+          localOKSign: isOKSign,
+          localRockOn: isRockOn,
+          localGaze: localGazeData,
+          isMutualEyeContact,
+          eyeContactDuration,
+          attentionMetrics,
         }));
 
         // Send to remote participant
@@ -750,7 +1011,11 @@ export function useLiveKitEyeContact(
           winkEye,
           isTongueOut,
           isKissing,
-          isVTongue // Now calculated with hand detection
+          isVTongue,
+          isPeaceSign,
+          isThumbsUp,
+          isOKSign,
+          isRockOn,
         });
         
         // Confirm data sent

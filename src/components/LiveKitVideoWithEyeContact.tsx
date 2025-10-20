@@ -11,6 +11,7 @@ import {
 } from "@livekit/components-react";
 import { Track } from "livekit-client";
 import LiveKitEyeContactOverlay from "./LiveKitEyeContactOverlay";
+import AttentionDashboard from "./AttentionDashboard";
 
 interface LiveKitVideoWithEyeContactProps {
   token: string;
@@ -82,6 +83,41 @@ function RoomContent() {
 
   return (
     <div className="relative w-full h-screen bg-black">
+      {/* Come Closer Button - Top Center - ALWAYS VISIBLE */}
+      <div className="fixed top-6 left-1/2 transform -translate-x-1/2 z-[100]">
+        <button
+          onClick={() => {
+            // Send come closer request via overlay's hook
+            console.log('📸 Come Closer button clicked!');
+            const event = new CustomEvent('sendComeCloser');
+            window.dispatchEvent(event);
+          }}
+          className="group relative bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-700 hover:to-purple-700 text-white px-8 py-4 rounded-full shadow-2xl border-2 border-white/30 transition-all duration-300 transform hover:scale-110 hover:shadow-pink-500/50 pointer-events-auto"
+          title="Ask them to bring camera closer to face"
+        >
+          <div className="flex items-center gap-3">
+            <span className="text-2xl animate-pulse">📸</span>
+            <span className="font-bold text-lg">Come Closer</span>
+            <svg 
+              className="w-5 h-5 group-hover:translate-x-1 transition-transform" 
+              fill="none" 
+              stroke="currentColor" 
+              viewBox="0 0 24 24"
+            >
+              <path 
+                strokeLinecap="round" 
+                strokeLinejoin="round" 
+                strokeWidth={2} 
+                d="M13 7l5 5m0 0l-5 5m5-5H6" 
+              />
+            </svg>
+          </div>
+        </button>
+      </div>
+      
+      {/* Mutual Eye Contact Visual Indicator - Top Center of Video */}
+      {/* This will be provided by LiveKitEyeContactOverlay now */}
+
       {/* Remote Video (Full Screen) */}
       <div className="absolute inset-0">
         {remoteVideoTrack ? (
@@ -361,23 +397,6 @@ function RoomContent() {
         </div>
       )}
 
-      {/* Come Closer Button - Separate from overlay */}
-      {eyeContactEnabled && (
-        <div className="absolute bottom-24 left-4 z-40">
-          <button
-            onClick={() => {
-              // Send come closer request via overlay's hook
-              const event = new CustomEvent('sendComeCloser');
-              window.dispatchEvent(event);
-            }}
-            className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white font-bold py-3 px-6 rounded-full shadow-2xl transition-all hover:scale-110 flex items-center gap-2 border-2 border-white"
-            title="Ask them to come closer to camera"
-          >
-            <span className="text-2xl">👋</span>
-            <span className="text-sm md:text-base">Come Closer</span>
-          </button>
-        </div>
-      )}
     </div>
   );
 }
