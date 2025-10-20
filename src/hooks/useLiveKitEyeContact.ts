@@ -635,7 +635,6 @@ export function useLiveKitEyeContact(
         
         // Harder threshold - must really stick tongue out
         // Add global 10-second cooldown for tongue detection
-        const now = Date.now();
         const timeSinceLastGesture = now - lastGestureTime.current;
         if (tongueOutScore > 0.35 && timeSinceLastGesture > 10000) {
           isTongueOut = true;
