@@ -132,8 +132,19 @@ export function useLiveKitEyeContact(
         new TextDecoder().decode(message.payload)
       );
       
-      // Handle wink, tongue, and all gesture data
-      if (remoteData.isWinking !== undefined) {
+      // Handle wink, tongue, gesture data, and gaze data
+      if (remoteData.isWinking !== undefined || remoteData.isLooking !== undefined) {
+        // Debug log remote gaze data reception
+        if (remoteData.isLooking !== undefined) {
+          console.log('📡 Received remote gaze data:', {
+            isLooking: remoteData.isLooking,
+            gazeX: remoteData.gazeX,
+            gazeY: remoteData.gazeY,
+            confidence: remoteData.confidence,
+            timestamp: remoteData.timestamp
+          });
+        }
+        
         setEyeContactState((prev) => ({
           ...prev,
           remoteWinking: remoteData.isWinking,
@@ -1008,14 +1019,28 @@ export function useLiveKitEyeContact(
             ? Math.round((remoteLooks / remoteLookingHistory.current.length) * 100)
             : 0;
           
-          // Calculate mutual attention time
-          const isBothLooking = localGazeData.isLooking && eyeContactState.remoteGaze?.isLooking;
+          // Calculate mutual attention time - now based on both having 100% attention
+          const isBothLooking = localAttentionScore === 100 && remoteAttentionScore === 100;
+          
+          // Debug logging for mutual gaze
+          if (localAttentionScore > 80 || remoteAttentionScore > 80) {
+            console.log('👁️ Mutual Gaze Debug (100% Attention Mode):', {
+              localAttentionScore,
+              remoteAttentionScore,
+              isBothLooking,
+              totalMutualTime: totalMutualEyeContactTime.current,
+              currentMutualTime: mutualEyeContactStartTime.current !== null ? (Date.now() - mutualEyeContactStartTime.current) / 1000 : 0
+            });
+          }
           
           if (isBothLooking && mutualEyeContactStartTime.current === null) {
             mutualEyeContactStartTime.current = Date.now();
+            console.log('🎯 Mutual gaze started! (Both at 100% attention)');
           } else if (!isBothLooking && mutualEyeContactStartTime.current !== null) {
-            totalMutualEyeContactTime.current += (Date.now() - mutualEyeContactStartTime.current) / 1000;
+            const sessionTime = (Date.now() - mutualEyeContactStartTime.current) / 1000;
+            totalMutualEyeContactTime.current += sessionTime;
             mutualEyeContactStartTime.current = null;
+            console.log(`⏹️ Mutual gaze ended. Session: ${sessionTime.toFixed(2)}s, Total: ${totalMutualEyeContactTime.current.toFixed(2)}s (100% attention mode)`);
           }
           
           const currentMutualTime = mutualEyeContactStartTime.current !== null
@@ -1045,7 +1070,7 @@ export function useLiveKitEyeContact(
         };
         
         const attentionMetrics = calculateAttentionMetrics();
-        const isMutualEyeContact = localGazeData.isLooking && eyeContactState.remoteGaze?.isLooking || false;
+        const isMutualEyeContact = attentionMetrics.localAttentionScore === 100 && attentionMetrics.remoteAttentionScore === 100;
         const eyeContactDuration = mutualEyeContactStartTime.current !== null
           ? (Date.now() - mutualEyeContactStartTime.current) / 1000
           : 0;
